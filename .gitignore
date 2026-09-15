@@ -1,0 +1,23 @@
+# MSVC/build outputs
+*.obj
+*.res
+*.pdb
+WinterStatic-Video-Cutter.exe
+
+# Generated portable/release packages
+WinterStatic-Video-Cutter-*-portable/
+WinterStatic-Video-Cutter-*-portable-*/
+WinterStatic-Video-Cutter-*-runtime-source/
+WinterStatic-Video-Cutter-*-Runtime-Source.zip
+
+# IDE/local files
+.vs/
+x64/
+Debug/
+Release/
+*.user
+*.suo
+
+# OS clutter
+Thumbs.db
+Desktop.ini

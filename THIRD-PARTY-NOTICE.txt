@@ -1,0 +1,40 @@
+Third-party notice
+==================
+
+WinterStatic Video Cutter uses libmpv from the mpv media player project as
+its playback engine. The Full Portable Cutter build contains the libmpv runtime
+and supporting runtime libraries collected from the builder's MSYS2 MINGW64
+installation.
+
+WinterStatic Video Cutter also invokes an external FFmpeg/ffprobe installation
+for editing, probing, remuxing and encoding.
+
+These third-party components are not relicensed by WinterStatic Video Cutter.
+They retain the licenses of their respective projects/packages. The portable
+build places the bundled playback runtime under libmpv\ and generates:
+
+  RUNTIME-MANIFEST.txt   exact DLL -> MSYS2 package/version provenance
+  RUNTIME-PACKAGES.tsv   binary package -> MSYS2 source package mapping
+  licenses\              installed license files collected from those packages
+
+The MSYS2 MINGW64 mpv package used by this build family is distributed as
+GPL-2.0-or-later, and its FFmpeg dependency was distributed as
+GPL-3.0-or-later at the time this runtime packaging process was prepared. Because the Full Portable package conveys those binaries together
+with this frontend, the WinterStatic frontend is released under
+GPL-3.0-or-later.
+
+IMPORTANT FOR PUBLIC BINARY RELEASES
+------------------------------------
+Redistributors are responsible for satisfying the applicable source-code and
+notice obligations for the exact binaries they convey. Keep this notice, the
+runtime manifest/package mapping, collected license files, and the project
+LICENSE. For public Full Portable releases, `build-native.bat release` invokes
+the runtime source collector, which downloads the exact official MSYS2 Source-Only
+Tarballs for every represented runtime package. Attach that matching source
+bundle to the same release. See PUBLIC-RELEASE-CHECKLIST.md in the source
+repository.
+
+
+FFmpeg editing worker
+---------------------
+WinterStatic Video Cutter invokes an external FFmpeg/ffprobe installation for editing and conversion. FFmpeg is not included in this source archive by the cutter frontend. See https://ffmpeg.org/ for FFmpeg licensing information applicable to the build you install.

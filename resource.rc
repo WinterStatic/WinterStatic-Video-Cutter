@@ -1,0 +1,294 @@
+#include <windows.h>
+
+101 ICON "app.ico"
+1 24 "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,2,2,0
+ PRODUCTVERSION 0,2,2,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "WinterStatic\0"
+            VALUE "FileDescription", "WinterStatic Video Cutter\0"
+            VALUE "FileVersion", "0.2.2\0"
+            VALUE "InternalName", "WinterStatic-Video-Cutter\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 WinterStatic\0"
+            VALUE "OriginalFilename", "WinterStatic-Video-Cutter.exe\0"
+            VALUE "ProductName", "WinterStatic Video Cutter\0"
+            VALUE "ProductVersion", "0.2.2\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
+
+
+201 DIALOGEX 0, 0, 252, 418
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Player Options"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Click to Play/Pause delay (ms):", -1, 10, 12, 138, 10
+    EDITTEXT        3001, 178, 9, 54, 14, ES_NUMBER | ES_AUTOHSCROLL
+
+    LTEXT           "OSD size:", -1, 10, 36, 80, 10
+    EDITTEXT        3005, 178, 33, 54, 14, ES_NUMBER | ES_AUTOHSCROLL
+
+    LTEXT           "OSD position:", -1, 10, 60, 80, 10
+    COMBOBOX        3002, 98, 57, 134, 80, CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "Playlist OSD at start of new video:", -1, 10, 84, 145, 10
+    COMBOBOX        3007, 160, 81, 72, 70, CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "GPU API:", -1, 10, 108, 80, 10
+    COMBOBOX        3008, 98, 105, 134, 90, CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "GPU API changes take effect after restarting the application.", -1,
+                    10, 128, 222, 10
+
+    LTEXT           "Subtitle size:", -1, 10, 151, 90, 10
+    EDITTEXT        3006, 178, 148, 54, 14, ES_NUMBER | ES_AUTOHSCROLL
+
+    LTEXT           "Preferred audio language:", -1, 10, 175, 122, 10
+    EDITTEXT        3003, 142, 172, 90, 14, ES_AUTOHSCROLL
+
+    LTEXT           "Preferred subtitle language:", -1, 10, 198, 126, 10
+    EDITTEXT        3004, 142, 195, 90, 14, ES_AUTOHSCROLL
+
+    LTEXT           "Use codes such as eng, jpn, deu. Leave blank for automatic.", -1,
+                    10, 219, 222, 10
+
+    AUTOCHECKBOX    "Exit fullscreen when playback ends", 3010, 10, 235, 190, 10, WS_TABSTOP
+
+    LTEXT           "When another file is opened:", -1, 10, 253, 150, 10
+    COMBOBOX        3011, 10, 265, 222, 70, CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+
+    AUTOCHECKBOX    "Hide cursor over playing video after inactivity", 3012, 10, 286, 220, 10, WS_TABSTOP
+
+    LTEXT           "Taskbar thumbnail:", -1, 10, 309, 90, 10
+    COMBOBOX        3013, 104, 306, 128, 55, CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+
+    AUTOCHECKBOX    "Show Stop button on toolbars", 3016, 10, 326, 190, 10, WS_TABSTOP
+    AUTOCHECKBOX    "Show PREV/NEXT item buttons on toolbar", 3017, 10, 343, 220, 10, WS_TABSTOP
+
+    LTEXT           "Screenshot save folder:", -1, 10, 362, 120, 10
+    EDITTEXT        3014, 10, 374, 174, 14, ES_AUTOHSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Browse...", 3015, 188, 374, 44, 14
+
+    PUSHBUTTON      "Keyboard shortcuts...", 3009, 10, 399, 104, 14
+    DEFPUSHBUTTON   "OK", IDOK, 124, 399, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 182, 399, 50, 14
+END
+
+202 DIALOGEX 0, 0, 258, 145
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About WinterStatic Video Cutter"
+FONT 9, "Segoe UI"
+BEGIN
+    CTEXT           "WinterStatic Video Cutter", -1, 12, 12, 234, 12
+    CTEXT           "Native video cutter powered by libmpv and FFmpeg", -1, 12, 31, 234, 11
+    CTEXT           "Created by WinterStatic", -1, 12, 50, 234, 11
+    CTEXT           "Licensed under GPL-3.0-or-later", -1, 12, 67, 234, 11
+    CTEXT           "Version 0.2.2", -1, 12, 84, 234, 11
+    PUSHBUTTON      "GitHub", 4300, 76, 109, 50, 14
+    DEFPUSHBUTTON   "OK", IDOK, 132, 109, 50, 14
+END
+
+203 DIALOGEX 0, 0, 530, 293
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Keyboard Shortcuts"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Click a shortcut box, then press a key or key combination. Tab moves between boxes.", -1, 10, 10, 510, 10
+    LTEXT           "Action", -1, 10, 27, 116, 10
+    LTEXT           "Primary", -1, 132, 27, 60, 10
+    LTEXT           "Alternate", -1, 198, 27, 60, 10
+    LTEXT           "Action", -1, 274, 27, 116, 10
+    LTEXT           "Primary", -1, 396, 27, 60, 10
+    LTEXT           "Alternate", -1, 462, 27, 58, 10
+    LTEXT           "Open file", -1, 10, 43, 116, 10
+    EDITTEXT        4000, 132, 41, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4100, 198, 41, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Play / Pause", -1, 10, 56, 116, 10
+    EDITTEXT        4001, 132, 54, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4101, 198, 54, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Stop", -1, 10, 69, 116, 10
+    EDITTEXT        4002, 132, 67, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4102, 198, 67, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Previous chapter", -1, 10, 82, 116, 10
+    EDITTEXT        4003, 132, 80, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4103, 198, 80, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Next chapter", -1, 10, 95, 116, 10
+    EDITTEXT        4004, 132, 93, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4104, 198, 93, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Seek backward 5 seconds", -1, 10, 108, 116, 10
+    EDITTEXT        4005, 132, 106, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4105, 198, 106, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Seek forward 5 seconds", -1, 10, 121, 116, 10
+    EDITTEXT        4006, 132, 119, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4106, 198, 119, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Decrease speed", -1, 10, 134, 116, 10
+    EDITTEXT        4007, 132, 132, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4107, 198, 132, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Increase speed", -1, 10, 147, 116, 10
+    EDITTEXT        4008, 132, 145, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4108, 198, 145, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Volume up", -1, 10, 160, 116, 10
+    EDITTEXT        4009, 132, 158, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4109, 198, 158, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Volume down", -1, 10, 173, 116, 10
+    EDITTEXT        4010, 132, 171, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4110, 198, 171, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Mute", -1, 10, 186, 116, 10
+    EDITTEXT        4011, 132, 184, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4111, 198, 184, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Toggle fullscreen", -1, 10, 199, 116, 10
+    EDITTEXT        4012, 132, 197, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4112, 198, 197, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Exit fullscreen", -1, 10, 212, 116, 10
+    EDITTEXT        4013, 132, 210, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4113, 198, 210, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Toggle AUTO next file", -1, 274, 43, 116, 10
+    EDITTEXT        4014, 396, 41, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4114, 462, 41, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Toggle playlist OSD", -1, 274, 56, 116, 10
+    EDITTEXT        4015, 396, 54, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4115, 462, 54, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Previous playlist item", -1, 274, 69, 116, 10
+    EDITTEXT        4016, 396, 67, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4116, 462, 67, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Next playlist item", -1, 274, 82, 116, 10
+    EDITTEXT        4017, 396, 80, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4117, 462, 80, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Cycle audio track", -1, 274, 95, 116, 10
+    EDITTEXT        4018, 396, 93, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4118, 462, 93, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Cycle subtitle track", -1, 274, 108, 116, 10
+    EDITTEXT        4019, 396, 106, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4119, 462, 106, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Audio delay -50 ms", -1, 274, 121, 116, 10
+    EDITTEXT        4020, 396, 119, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4120, 462, 119, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Audio delay +50 ms", -1, 274, 134, 116, 10
+    EDITTEXT        4021, 396, 132, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4121, 462, 132, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Reset audio delay", -1, 274, 147, 116, 10
+    EDITTEXT        4022, 396, 145, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4122, 462, 145, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Subtitle delay -50 ms", -1, 274, 160, 116, 10
+    EDITTEXT        4023, 396, 158, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4123, 462, 158, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Subtitle delay +50 ms", -1, 274, 173, 116, 10
+    EDITTEXT        4024, 396, 171, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4124, 462, 171, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Reset subtitle delay", -1, 274, 186, 116, 10
+    EDITTEXT        4025, 396, 184, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4125, 462, 184, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Media Info", -1, 274, 199, 116, 10
+    EDITTEXT        4026, 396, 197, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4126, 462, 197, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Toggle LOOP current file", -1, 274, 212, 116, 10
+    EDITTEXT        4027, 396, 210, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4127, 462, 210, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Precise seek back 5 seconds", -1, 10, 225, 116, 10
+    EDITTEXT        4028, 132, 223, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4128, 198, 223, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Precise seek forward 5 seconds", -1, 10, 238, 116, 10
+    EDITTEXT        4029, 132, 236, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4129, 198, 236, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Take screenshot", -1, 274, 225, 116, 10
+    EDITTEXT        4030, 396, 223, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4130, 462, 223, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Previous frame", -1, 274, 238, 116, 10
+    EDITTEXT        4031, 396, 236, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4131, 462, 236, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Next frame", -1, 274, 251, 116, 10
+    EDITTEXT        4032, 396, 249, 60, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    EDITTEXT        4132, 462, 249, 58, 12, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Clear selected", 4200, 10, 272, 78, 14
+    PUSHBUTTON      "Restore defaults", 4201, 94, 272, 82, 14
+    DEFPUSHBUTTON   "OK", IDOK, 418, 272, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 474, 272, 50, 14
+END
+
+
+204 DIALOGEX 0, 0, 286, 104
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Cutter Options"
+FONT 9, "Segoe UI"
+BEGIN
+    AUTOCHECKBOX    "Overwrite existing output", 5006, 12, 16, 260, 10, WS_TABSTOP
+    AUTOCHECKBOX    "Show PowerShell window during conversion", 5004, 12, 34, 260, 10, WS_TABSTOP
+    AUTOCHECKBOX    "Close PowerShell when conversion finishes", 5005, 12, 50, 260, 10, WS_TABSTOP
+
+    DEFPUSHBUTTON   "OK", IDOK, 170, 80, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 226, 80, 50, 14
+END
+
+
+205 DIALOGEX 0, 0, 430, 238
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Open / Manage Inputs"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Files will be joined in this order when more than one input is present.", -1, 10, 10, 410, 10
+    LISTBOX         5100, 10, 27, 410, 154, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Add files...", 5101, 10, 188, 66, 16
+    PUSHBUTTON      "Remove", 5102, 80, 188, 54, 16
+    PUSHBUTTON      "Up", 5103, 138, 188, 40, 16
+    PUSHBUTTON      "Down", 5104, 182, 188, 40, 16
+    PUSHBUTTON      "Sort", 5105, 226, 188, 44, 16
+    PUSHBUTTON      "Clear", 5106, 274, 188, 44, 16
+    DEFPUSHBUTTON   "Done", IDOK, 310, 214, 52, 16
+    PUSHBUTTON      "Cancel", IDCANCEL, 368, 214, 52, 16
+END
+
+206 DIALOGEX 0, 0, 470, 306
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Subtitle Options"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "External subtitles can be added before input. Embedded tracks refresh when the primary input changes.", -1, 10, 10, 450, 10
+    LISTBOX         5400, 10, 27, 450, 150, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP
+
+    PUSHBUTTON      "Add external...", 5401, 10, 184, 78, 16
+    PUSHBUTTON      "Remove external", 5402, 184, 184, 82, 16
+    PUSHBUTTON      "Up", 5403, 270, 184, 40, 16
+    PUSHBUTTON      "Down", 5404, 314, 184, 40, 16
+
+    LTEXT           "Selected track mode:", -1, 10, 213, 88, 10
+
+    LTEXT           "Track title:", -1, 10, 236, 58, 10
+    EDITTEXT        5408, 72, 233, 286, 14, ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Burn is external-only. Supported embedded text tracks can use timing correction through SUBS SYNC.", -1, 10, 258, 410, 20
+
+    DEFPUSHBUTTON   "Done", IDOK, 360, 280, 48, 16
+    PUSHBUTTON      "Cancel", IDCANCEL, 412, 280, 48, 16
+END
+
+207 DIALOGEX 0, 0, 470, 252
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Audio Tracks"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Audio tracks for the primary input. Included rows are mapped in this order.", -1, 10, 10, 450, 10
+    LISTBOX         5300, 10, 27, 450, 154, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Add external...", 5301, 10, 188, 78, 16
+    PUSHBUTTON      "Include / Exclude", 5302, 92, 188, 88, 16
+    PUSHBUTTON      "Remove external", 5303, 184, 188, 82, 16
+    PUSHBUTTON      "Up", 5304, 270, 188, 40, 16
+    PUSHBUTTON      "Down", 5305, 314, 188, 40, 16
+    LTEXT           "External audio is added as a separate FFmpeg input. Audio mode/bitrate/offset on the main bar still apply to the selected output tracks.", -1, 10, 214, 340, 26
+    DEFPUSHBUTTON   "Done", IDOK, 360, 226, 48, 16
+    PUSHBUTTON      "Cancel", IDCANCEL, 412, 226, 48, 16
+END
+
