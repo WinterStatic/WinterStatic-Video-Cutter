@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity version="0.2.0.1" processorArchitecture="amd64" name="WinterStatic.VideoCutter" type="win32"/>
+  <assemblyIdentity version="0.3.0.0" processorArchitecture="amd64" name="WinterStatic.VideoCutter" type="win32"/>
   <description>WinterStatic Video Cutter</description>
   <dependency>
     <dependentAssembly>

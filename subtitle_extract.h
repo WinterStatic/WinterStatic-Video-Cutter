@@ -57,13 +57,4 @@ ExtractResult extract_subtitle_text(
     const ExtractOptions& options = {}
 );
 
-// Legacy/explicit conversion API retained for compatibility. Extract exactly
-// one global stream index to SRT via FFmpeg.
-ExtractResult extract_subtitle_srt(
-    const std::filesystem::path& media,
-    int stream_index,
-    const std::filesystem::path& output,
-    const ExtractOptions& options = {}
-);
-
 } // namespace winterstatic::subtitle

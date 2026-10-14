@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
-set "APP_VERSION=0.2.2"
+set "APP_VERSION=0.3.0"
 
 set "RELEASE_MODE=0"
 if /I "%~1"=="release" set "RELEASE_MODE=1"
@@ -56,18 +56,30 @@ if not exist "%BUILD_WORK%\" goto :build_workspace_failed
 set "BUILD_RES=%BUILD_WORK%\app.res"
 set "BUILD_OBJ=%BUILD_WORK%\main.obj"
 set "BUILD_SUBTITLE_EXTRACT_OBJ=%BUILD_WORK%\subtitle_extract.obj"
+set "BUILD_SUBTITLE_SYNC_OBJ=%BUILD_WORK%\subtitle_sync_core.obj"
+set "BUILD_SUBTITLE_ENCODING_OBJ=%BUILD_WORK%\subtitle_encoding.obj"
+set "BUILD_PGS_SYNC_OBJ=%BUILD_WORK%\pgs_sync.obj"
+set "BUILD_VOBSUB_SYNC_OBJ=%BUILD_WORK%\vobsub_sync.obj"
 set "BUILD_EXE=%BUILD_WORK%\WinterStatic-Video-Cutter.exe"
 
 echo [1/4] Compiling resources...
 rc /nologo /fo "%BUILD_RES%" resource.rc
 if errorlevel 1 goto :build_failed
 
-echo [2/4] Compiling native frontend and subtitle extractor...
+echo [2/4] Compiling native frontend and subtitle modules...
 cl /nologo /std:c++17 /O2 /EHsc /MT /utf-8 /DUNICODE /D_UNICODE /c /Fo"%BUILD_OBJ%" main.cpp
 if errorlevel 1 goto :build_failed
 cl /nologo /std:c++17 /O2 /EHsc /MT /utf-8 /DUNICODE /D_UNICODE /c /Fo"%BUILD_SUBTITLE_EXTRACT_OBJ%" subtitle_extract.cpp
 if errorlevel 1 goto :build_failed
-cl /nologo /Fe"%BUILD_EXE%" "%BUILD_OBJ%" "%BUILD_SUBTITLE_EXTRACT_OBJ%" "%BUILD_RES%" ^
+cl /nologo /std:c++17 /O2 /EHsc /MT /utf-8 /DUNICODE /D_UNICODE /c /Fo"%BUILD_SUBTITLE_SYNC_OBJ%" subtitle_sync_core.cpp
+if errorlevel 1 goto :build_failed
+cl /nologo /std:c++17 /O2 /EHsc /MT /utf-8 /DUNICODE /D_UNICODE /c /Fo"%BUILD_SUBTITLE_ENCODING_OBJ%" subtitle_encoding.cpp
+if errorlevel 1 goto :build_failed
+cl /nologo /std:c++17 /O2 /EHsc /MT /utf-8 /DUNICODE /D_UNICODE /c /Fo"%BUILD_PGS_SYNC_OBJ%" pgs_sync.cpp
+if errorlevel 1 goto :build_failed
+cl /nologo /std:c++17 /O2 /EHsc /MT /utf-8 /DUNICODE /D_UNICODE /c /Fo"%BUILD_VOBSUB_SYNC_OBJ%" vobsub_sync.cpp
+if errorlevel 1 goto :build_failed
+cl /nologo /Fe"%BUILD_EXE%" "%BUILD_OBJ%" "%BUILD_SUBTITLE_EXTRACT_OBJ%" "%BUILD_SUBTITLE_SYNC_OBJ%" "%BUILD_SUBTITLE_ENCODING_OBJ%" "%BUILD_PGS_SYNC_OBJ%" "%BUILD_VOBSUB_SYNC_OBJ%" "%BUILD_RES%" ^
   /link /SUBSYSTEM:WINDOWS ^
   User32.lib Gdi32.lib Dwmapi.lib UxTheme.lib Comdlg32.lib Shell32.lib Shlwapi.lib Ole32.lib Uuid.lib
 if errorlevel 1 goto :build_failed

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 WinterStatic
 
 #define WIN32_LEAN_AND_MEAN
@@ -39,6 +39,7 @@
 #include <limits>
 
 #include "subtitle_extract.h"
+#include "subtitle_sync_core.h"
 
 #pragma comment(lib, "Dwmapi.lib")
 #pragma comment(lib, "UxTheme.lib")
@@ -115,7 +116,6 @@ constexpr wchar_t kProgressClass[] = L"MPVMPCNativeProgress";
 constexpr wchar_t kOverlayClass[] = L"MPVMPCNativeOverlay";
 
 constexpr wchar_t kAppTitle[] = L"WinterStatic Video Cutter";
-constexpr wchar_t kVersionText[] = L"Version 0.2.2";
 constexpr wchar_t kProjectUrl[] = L"https://github.com/WinterStatic";
 
 constexpr int kMenuHeight = 24;
@@ -240,6 +240,12 @@ constexpr int IDC_CUT_AUDIO_SYNC = 1082;
 constexpr int IDC_AUDIO_SYNC_TRACK = 1083;
 constexpr int IDC_AUDIO_SYNC_OFFSET_RESET = 1084;
 constexpr int IDC_AUDIO_SYNC_STATUS = 1085;
+constexpr int IDC_CUT_SUBSYNC_TRACK = 1086;
+constexpr int IDC_CUT_SUBSYNC_OFFSET_LABEL = 1087;
+constexpr int IDC_CUT_SUBSYNC_OFFSET_MINUS = 1088;
+constexpr int IDC_CUT_SUBSYNC_OFFSET = 1089;
+constexpr int IDC_CUT_SUBSYNC_OFFSET_PLUS = 1090;
+constexpr int IDC_CUT_SUBSYNC_OFFSET_RESET = 1091;
 constexpr int IDC_INPUT_LIST = 5100;
 constexpr int IDC_INPUT_ADD = 5101;
 constexpr int IDC_INPUT_REMOVE = 5102;
@@ -264,19 +270,7 @@ constexpr int IDC_SUB_SOFT = 5204;
 constexpr int IDC_SUB_BURN = 5205;
 constexpr int IDC_SUB_TITLE = 5206;
 constexpr int IDC_SUB_KEEP_EMBEDDED = 5207;
-constexpr int IDC_SUB_SOFT_LABEL = 5208;
-constexpr int IDC_SUB_BURN_LABEL = 5209;
-constexpr int IDC_SUB_OFFSET_LABEL = 5210;
-constexpr int IDC_SUB_OFFSET_MINUS = 5211;
-constexpr int IDC_SUB_OFFSET = 5212;
-constexpr int IDC_SUB_OFFSET_PLUS = 5213;
-constexpr int IDC_SUB_OFFSET_RESET = 5214;
-constexpr int IDC_SUB_SYNC_A = 5215;
-constexpr int IDC_SUB_SYNC_B = 5216;
-constexpr int IDC_SUB_DRIFT = 5217;
-constexpr int IDC_SUB_SYNC_CLEAR = 5218;
 constexpr int IDC_SUB_SYNC_STATUS = 5219;
-constexpr int IDC_SUB_SYNC_TRACK = 5220;
 constexpr int IDC_SUB_TRACK_LIST = 5400;
 constexpr int IDC_SUB_TRACK_ADD = 5401;
 constexpr int IDC_SUB_TRACK_REMOVE = 5402;
@@ -412,6 +406,13 @@ HWND g_cutStickKeyframesButton = nullptr;
 HWND g_cutTwoPassButton = nullptr;
 HWND g_cutSubtitles = nullptr;
 HWND g_cutSubSyncButton = nullptr;
+HWND g_cutSubsyncTrackLabel = nullptr;
+HWND g_cutSubsyncTrack = nullptr;
+HWND g_cutSubsyncOffsetLabel = nullptr;
+HWND g_cutSubsyncOffsetMinus = nullptr;
+HWND g_cutSubsyncOffsetEdit = nullptr;
+HWND g_cutSubsyncOffsetPlus = nullptr;
+HWND g_cutSubsyncOffsetReset = nullptr;
 HWND g_cutSubEnable = nullptr;
 HWND g_cutSubPathLabel = nullptr;
 HWND g_cutSubPathEdit = nullptr;
@@ -422,18 +423,7 @@ HWND g_cutSubBurn = nullptr;
 HWND g_cutSubTitleLabel = nullptr;
 HWND g_cutSubTitleEdit = nullptr;
 HWND g_cutSubKeepEmbedded = nullptr;
-HWND g_cutSubOffsetLabel = nullptr;
-HWND g_cutSubOffsetMinus = nullptr;
-HWND g_cutSubOffsetEdit = nullptr;
-HWND g_cutSubOffsetPlus = nullptr;
-HWND g_cutSubOffsetReset = nullptr;
-HWND g_cutSubSyncA = nullptr;
-HWND g_cutSubSyncB = nullptr;
-HWND g_cutSubDrift = nullptr;
-HWND g_cutSubSyncClear = nullptr;
 HWND g_cutSubSyncStatus = nullptr;
-HWND g_cutSubSyncTrackLabel = nullptr;
-HWND g_cutSubSyncTrack = nullptr;
 HWND g_cutCrfLabel = nullptr;
 HWND g_cutCrfEdit = nullptr;
 HWND g_cutProgress = nullptr;
@@ -492,24 +482,14 @@ struct CutterManagedSubtitleTrack {
     int64_t mpvTrackId = -1; // mpv track id, used only for player preview selection.
     int ffmpegStreamIndex = -1; // Exact global FFmpeg stream index from ffprobe/mpv reconciliation.
     std::wstring codec;
-    bool syncCapable = false; // Embedded text subtitle with a verified FFmpeg stream identity.
     std::wstring externalPath;
     bool sourceBound = false; // true only for auto-paired sidecars tied to the current source.
     std::wstring language;
     std::wstring title;
     bool included = true;
     CutterSubtitleMode mode = CutterSubtitleMode::Soft;
+    std::int64_t offsetMs = 0; // Positive delays this subtitle track.
 
-    // Store timing state on each managed subtitle row so switching the
-    // SUBS SYNC target cannot mix offsets or drift anchors between tracks.
-    int offsetMs = 0;
-    bool syncASet = false;
-    bool syncBSet = false;
-    double syncAVideoSeconds = 0.0;
-    double syncBVideoSeconds = 0.0;
-    int syncAOffsetMs = 0;
-    int syncBOffsetMs = 0;
-    bool driftEnabled = false;
 };
 
 struct CutterManagedAudioTrack {
@@ -558,15 +538,7 @@ std::wstring g_cutSubtitlePath;
 CutterSubtitleMode g_cutSubtitleMode = CutterSubtitleMode::Soft;
 std::wstring g_cutSubtitleTitle;
 bool g_cutKeepEmbeddedSubtitles = false;
-int g_cutSubtitleOffsetMs = 0;
-bool g_cutSubtitleSyncASet = false;
-bool g_cutSubtitleSyncBSet = false;
-double g_cutSubtitleSyncAVideoSeconds = 0.0;
-double g_cutSubtitleSyncBVideoSeconds = 0.0;
-int g_cutSubtitleSyncAOffsetMs = 0;
-int g_cutSubtitleSyncBOffsetMs = 0;
-bool g_cutSubtitleDriftEnabled = false;
-std::vector<std::wstring> g_cutSyncedSubtitlePaths;
+std::vector<std::wstring> g_cutRebasedSubtitlePaths;
 bool g_cutSubtitleSyncOpen = false;
 bool g_cutAudioSyncOpen = false;
 std::vector<std::wstring> g_cutInputs;
@@ -579,8 +551,7 @@ bool g_cutAudioPreviewSession = false;
 std::wstring g_cutManagedSubtitleSourcePath;
 bool g_cutSubtitleTracksInitialized = false;
 std::vector<CutterManagedSubtitleTrack> g_cutSubtitleTracks;
-int g_cutSubtitleSyncTrackIndex = -1;
-std::wstring g_cutSubtitleProbeError;
+int g_cutSubsyncTrackIndex = -1;
 std::wstring g_cutOutputPath;
 double g_cutMarkA = -1.0;
 double g_cutMarkB = -1.0;
@@ -620,6 +591,7 @@ double g_cutProgressDurationSeconds = 0.0;
 std::wstring g_cutDonePath;
 bool g_cutWorkerKeepConsoleOpen = false;
 std::vector<HANDLE> g_cutLingeringJobs;
+std::vector<HANDLE> g_cutLingeringProcesses;
 double g_cutProgressFraction = 0.0;
 int g_cutProgressPasses = 1;
 int g_cutProgressPulse = 0;
@@ -837,6 +809,8 @@ DWORD g_windowedExStyle = 0;
 RECT g_windowedRect{};
 WINDOWPLACEMENT g_windowedPlacement{ sizeof(WINDOWPLACEMENT) };
 std::wstring g_statusText = L"Stopped";
+std::wstring g_transientStatusText;
+ULONGLONG g_transientStatusUntil = 0;
 std::wstring g_audioInfoText = L"--";
 std::wstring g_subInfoText = L"--";
 std::wstring g_currentMediaPath;
@@ -1708,9 +1682,6 @@ void LoadSettings() {
     // The legacy blanket KeepEmbeddedSubtitles setting is no longer exposed in
     // SUBS OPT. Managed embedded subtitle rows now default OUT for clip jobs.
     g_cutKeepEmbeddedSubtitles = false;
-    g_cutSubtitleOffsetMs = std::clamp(
-        ReadSettingInt(L"Cutter", L"SubtitleOffsetMs", 0), -600000, 600000);
-
 }
 
 void SaveAudioState() {
@@ -1789,28 +1760,6 @@ void SaveSettings() {
     putInt(L"Cutter", L"SubtitleMode", static_cast<int>(g_cutSubtitleMode));
     putString(L"Cutter", L"SubtitleTitle", g_cutSubtitleTitle);
     putInt(L"Cutter", L"KeepEmbeddedSubtitles", g_cutKeepEmbeddedSubtitles ? 1 : 0);
-    int persistedSubtitleOffsetMs = g_cutSubtitleOffsetMs;
-    if (g_cutSubtitleTracksInitialized &&
-        g_cutSubtitleSyncTrackIndex >= 0 &&
-        g_cutSubtitleSyncTrackIndex < static_cast<int>(g_cutSubtitleTracks.size()) &&
-        g_cutSubtitleTracks[static_cast<size_t>(g_cutSubtitleSyncTrackIndex)].embedded) {
-        // Embedded timing state is per-session/per-job. Do not accidentally
-        // persist its offset against the remembered legacy external subtitle.
-        persistedSubtitleOffsetMs = 0;
-        if (!g_cutSubtitlePath.empty()) {
-            const std::wstring remembered = AbsoluteLocalPath(g_cutSubtitlePath);
-            for (const auto& track : g_cutSubtitleTracks) {
-                if (!track.embedded &&
-                    _wcsicmp(AbsoluteLocalPath(track.externalPath).c_str(),
-                             remembered.c_str()) == 0) {
-                    persistedSubtitleOffsetMs = track.offsetMs;
-                    break;
-                }
-            }
-        }
-    }
-    putInt(L"Cutter", L"SubtitleOffsetMs", persistedSubtitleOffsetMs);
-
     WINDOWPLACEMENT wp{ sizeof(WINDOWPLACEMENT) };
     if (g_fullscreen && g_windowedPlacement.length == sizeof(WINDOWPLACEMENT)) {
         wp = g_windowedPlacement;
@@ -2285,6 +2234,7 @@ std::wstring CutterOutputExtension() {
 }
 
 void SaveSettings();
+void ShowCutterNeedsInputStatus();
 void PollMpv();
 void ResetKeyframeIndexCache();
 void SyncCutterSubtitleContextControls();
@@ -2298,16 +2248,18 @@ void LoadManagedAudioSyncToControls();
 void CutterApplyAudioPreviewDelay();
 void SyncCutterAudioContextControls();
 bool CutterCommitAudioSyncOffsetEdit(bool showError);
+std::wstring CutterPrimaryInputPath();
 void ResetCutterManagedSubtitleTracksForSource(bool preserveExternal = false);
 void EnsureCutterManagedSubtitleSource();
 void EnsureCutterSubtitleTracksInitialized();
-bool CutterManagedSubtitleDriftReady(
-    const CutterManagedSubtitleTrack& track);
-void StoreLegacySubtitleSyncToManaged();
-void LoadManagedSubtitleSyncToLegacy();
-bool CutterHasActiveSubtitleSyncTarget();
+bool CutterSubsyncTrackSupported(const CutterManagedSubtitleTrack& track);
+CutterManagedSubtitleTrack* ActiveManagedSubsyncTrack();
+const CutterManagedSubtitleTrack* ActiveManagedSubsyncTrackConst();
+bool CutterCommitSubsyncOffsetEdit(bool showError);
+void LoadManagedSubsyncToControls();
+void RefreshCutterSubsyncTrackCombo();
+void SyncCutterSubsyncContextControls();
 void CutterSelectSubtitleForPreview(const std::wstring& rawPath);
-void CutterSelectActiveSubtitleForPreview();
 std::wstring CutterTempPath(const wchar_t* suffix);
 
 bool CutterIsSubtitlePath(const std::wstring& path) {
@@ -2346,9 +2298,6 @@ void CutterAutoPairSubtitleForInput(const std::wstring& videoPath) {
         g_cutSubtitlesEnabled = false;
     }
     if (changed) {
-        g_cutSubtitleSyncASet = false;
-        g_cutSubtitleSyncBSet = false;
-        g_cutSubtitleDriftEnabled = false;
         SaveSettings();
     }
     SyncCutterSubtitleContextControls();
@@ -2368,287 +2317,19 @@ std::wstring CutterSubtitleFilterPath(const std::wstring& rawPath) {
     return escaped;
 }
 
-struct CutterSubtitleSyncSpec {
-    int constantOffsetMs = 0;
-    bool driftEnabled = false;
-    double videoASeconds = 0.0;
-    double videoBSeconds = 0.0;
-    int offsetAMs = 0;
-    int offsetBMs = 0;
+// Clip-timeline rebase only. The replacement subtitle-sync module owns
+// offset/drift/sync-point state; none of that legacy engine lives here.
+struct CutterSubtitleRebaseSpec {
     int timelineShiftMs = 0;
 };
 
-bool CutterSubtitleDriftGeometryValid(
-    double videoASeconds,
-    int offsetAMs,
-    double videoBSeconds,
-    int offsetBMs) {
-
-    double v1 = videoASeconds;
-    double v2 = videoBSeconds;
-    double o1 = static_cast<double>(offsetAMs) / 1000.0;
-    double o2 = static_cast<double>(offsetBMs) / 1000.0;
-
-    if (v2 < v1) {
-        std::swap(v1, v2);
-        std::swap(o1, o2);
-    }
-
-    const double videoSpan = v2 - v1;
-    const double source1 = v1 - o1;
-    const double source2 = v2 - o2;
-    const double sourceSpan = source2 - source1;
-
-    return videoSpan > 0.050 &&
-           sourceSpan > 0.050;
-}
-
-bool CutterSubtitleDriftReady() {
-    if (!g_cutSubtitleSyncASet || !g_cutSubtitleSyncBSet) {
-        return false;
-    }
-
-    return CutterSubtitleDriftGeometryValid(
-        g_cutSubtitleSyncAVideoSeconds,
-        g_cutSubtitleSyncAOffsetMs,
-        g_cutSubtitleSyncBVideoSeconds,
-        g_cutSubtitleSyncBOffsetMs);
-}
-
-int CutterSubtitlePreviewDelayMsAt(double videoSeconds) {
-    if (!g_cutSubtitleDriftEnabled || !CutterSubtitleDriftReady()) {
-        return g_cutSubtitleOffsetMs;
-    }
-
-    double v1 = g_cutSubtitleSyncAVideoSeconds;
-    double v2 = g_cutSubtitleSyncBVideoSeconds;
-    double o1 = static_cast<double>(g_cutSubtitleSyncAOffsetMs);
-    double o2 = static_cast<double>(g_cutSubtitleSyncBOffsetMs);
-    if (v2 < v1) {
-        std::swap(v1, v2);
-        std::swap(o1, o2);
-    }
-
-    if (videoSeconds <= v1) return static_cast<int>(std::llround(o1));
-    if (videoSeconds >= v2) return static_cast<int>(std::llround(o2));
-
-    const double source1 = v1 - o1 / 1000.0;
-    const double source2 = v2 - o2 / 1000.0;
-    const double sourceSpan = source2 - source1;
-    const double correctedSpan = v2 - v1;
-    if (std::abs(sourceSpan) < 0.000001 ||
-        std::abs(correctedSpan) < 0.000001) {
-        return static_cast<int>(std::llround(o1));
-    }
-
-    const double ratio = correctedSpan / sourceSpan;
-    const double sourceAtVideo =
-        source1 + (videoSeconds - v1) / ratio;
-    return static_cast<int>(
-        std::llround((videoSeconds - sourceAtVideo) * 1000.0));
-}
-
-void CutterApplySubtitlePreviewDelay() {
-    if (!g_mpv || !CutterHasActiveSubtitleSyncTarget()) return;
-    const int delayMs =
-        CutterSubtitlePreviewDelayMsAt(
-            std::max(0.0, MpvGetDouble("time-pos", g_timePos)));
-    MpvSetDouble("sub-delay", static_cast<double>(delayMs) / 1000.0);
-    g_subtitleDelayTouched = delayMs != 0;
-}
-
-bool CutterParseSubtitleOffsetText(int& valueMs, bool showError) {
-    valueMs = g_cutSubtitleOffsetMs;
-    if (!g_cutSubOffsetEdit) return true;
-
-    wchar_t text[64]{};
-    GetWindowTextW(
-        g_cutSubOffsetEdit, text,
-        static_cast<int>(std::size(text)));
-
-    std::wstring value(text);
-    value.erase(
-        std::remove_if(
-            value.begin(), value.end(),
-            [](wchar_t ch) { return iswspace(ch) != 0; }),
-        value.end());
-
-    if (value.empty()) value = L"0";
-
-    wchar_t* end = nullptr;
-    const long parsed = wcstol(value.c_str(), &end, 10);
-    if (!end ||
-        end == value.c_str() ||
-        *end != L'\0' ||
-        parsed < -600000L ||
-        parsed > 600000L) {
-        if (showError) {
-            MessageBoxW(
-                g_main,
-                L"Subtitle offset must be a whole number from -600000 to 600000 ms.",
-                kAppTitle,
-                MB_OK | MB_ICONWARNING);
-        }
-        return false;
-    }
-
-    valueMs = static_cast<int>(parsed);
-    return true;
-}
-
-void CutterSetSubtitleOffsetMs(int valueMs, bool disableDrift = true) {
-    g_cutSubtitleOffsetMs =
-        std::clamp(valueMs, -600000, 600000);
-
-    if (disableDrift) {
-        g_cutSubtitleDriftEnabled = false;
-    }
-
-    if (g_cutSubOffsetEdit) {
-        SetWindowTextW(
-            g_cutSubOffsetEdit,
-            std::to_wstring(g_cutSubtitleOffsetMs).c_str());
-    }
-
-    StoreLegacySubtitleSyncToManaged();
-    CutterApplySubtitlePreviewDelay();
-    SyncCutterSubtitleContextControls();
-    SaveSettings();
-}
-
-void CutterAdjustSubtitleOffsetMs(int deltaMs) {
-    int current = g_cutSubtitleOffsetMs;
-    CutterParseSubtitleOffsetText(current, false);
-    CutterSetSubtitleOffsetMs(current + deltaMs, true);
-}
-
-std::wstring CutterSyncPointText(
-    bool set,
-    double videoSeconds,
-    int offsetMs) {
-
-    if (!set) return L"--";
-
-    const int totalMs = static_cast<int>(
-        std::llround(std::max(0.0, videoSeconds) * 1000.0));
-    const int minutes = totalMs / 60000;
-    const int seconds = (totalMs / 1000) % 60;
-    const int millis = totalMs % 1000;
-
-    wchar_t buffer[96]{};
-    swprintf_s(
-        buffer,
-        L"%d:%02d.%03d %+.0fms",
-        minutes,
-        seconds,
-        millis,
-        static_cast<double>(offsetMs));
-    return buffer;
-}
-
-void CutterCaptureSubtitleSyncPoint(bool first) {
-    if (!CutterHasActiveSubtitleSyncTarget()) {
-        MessageBoxW(
-            g_main,
-            L"Select a sync-capable subtitle in SUBS SYNC first.",
-            kAppTitle,
-            MB_OK | MB_ICONINFORMATION);
-        return;
-    }
-
-    int offset = g_cutSubtitleOffsetMs;
-    if (!CutterParseSubtitleOffsetText(offset, true)) return;
-    g_cutSubtitleOffsetMs = offset;
-
-    const double videoTime =
-        std::max(0.0, MpvGetDouble("time-pos", g_timePos));
-
-    if (first) {
-        g_cutSubtitleSyncASet = true;
-        g_cutSubtitleSyncAVideoSeconds = videoTime;
-        g_cutSubtitleSyncAOffsetMs = offset;
-    } else {
-        g_cutSubtitleSyncBSet = true;
-        g_cutSubtitleSyncBVideoSeconds = videoTime;
-        g_cutSubtitleSyncBOffsetMs = offset;
-    }
-
-    if (g_cutSubtitleSyncASet &&
-        g_cutSubtitleSyncBSet &&
-        CutterSubtitleDriftReady()) {
-        g_cutSubtitleDriftEnabled = true;
-    }
-
-    StoreLegacySubtitleSyncToManaged();
-    SyncCutterSubtitleContextControls();
-    CutterApplySubtitlePreviewDelay();
-
-    ShowOsdText(
-        std::wstring(first ? L"Subtitle sync A: " : L"Subtitle sync B: ") +
-        CutterSyncPointText(true, videoTime, offset),
-        1800);
-}
-
-void CutterClearSubtitleDrift() {
-    g_cutSubtitleSyncASet = false;
-    g_cutSubtitleSyncBSet = false;
-    g_cutSubtitleDriftEnabled = false;
-    StoreLegacySubtitleSyncToManaged();
-    SyncCutterSubtitleContextControls();
-    CutterApplySubtitlePreviewDelay();
-    ShowOsdText(L"Subtitle drift points cleared", 1300);
-}
-
-int64_t CutterTransformSubtitleMs(
+int64_t CutterRebaseSubtitleMs(
     int64_t oldMs,
-    const CutterSubtitleSyncSpec& spec) {
+    const CutterSubtitleRebaseSpec& spec) {
 
-    double corrected = static_cast<double>(oldMs);
-
-    if (spec.driftEnabled) {
-        double v1 = spec.videoASeconds * 1000.0;
-        double v2 = spec.videoBSeconds * 1000.0;
-        double o1 = static_cast<double>(spec.offsetAMs);
-        double o2 = static_cast<double>(spec.offsetBMs);
-
-        if (v2 < v1) {
-            std::swap(v1, v2);
-            std::swap(o1, o2);
-        }
-
-        const double s1 = v1 - o1;
-        const double s2 = v2 - o2;
-        const double correctedSpan = v2 - v1;
-        const double sourceSpan = s2 - s1;
-
-        if (correctedSpan <= 1.0 ||
-            sourceSpan <= 1.0) {
-            corrected +=
-                static_cast<double>(spec.constantOffsetMs);
-        } else if (oldMs <= s1) {
-            corrected += o1;
-        } else if (oldMs >= s2) {
-            corrected += o2;
-        } else {
-            const double ratio =
-                correctedSpan / sourceSpan;
-            corrected =
-                v1 +
-                (static_cast<double>(oldMs) - s1) *
-                    ratio;
-        }
-    } else {
-        corrected +=
-            static_cast<double>(spec.constantOffsetMs);
-    }
-
-    corrected -=
-        static_cast<double>(spec.timelineShiftMs);
-
-    return std::max<int64_t>(
-        0,
-        static_cast<int64_t>(
-            std::llround(corrected)));
+    const int64_t shifted =
+        oldMs - static_cast<int64_t>(spec.timelineShiftMs);
+    return std::max<int64_t>(0, shifted);
 }
 
 bool CutterReadBinaryFile(
@@ -2888,7 +2569,7 @@ std::string CutterFormatAssClock(int64_t ms) {
 bool CutterRewriteArrowSubtitleLine(
     std::string& line,
     bool vtt,
-    const CutterSubtitleSyncSpec& spec) {
+    const CutterSubtitleRebaseSpec& spec) {
 
     const size_t arrow = line.find("-->");
     if (arrow == std::string::npos) return true;
@@ -2946,11 +2627,11 @@ bool CutterRewriteArrowSubtitleLine(
     const char separator = vtt ? '.' : ',';
     const std::string newStart =
         CutterFormatSubtitleClock(
-            CutterTransformSubtitleMs(startMs, spec),
+            CutterRebaseSubtitleMs(startMs, spec),
             separator);
     const std::string newEnd =
         CutterFormatSubtitleClock(
-            CutterTransformSubtitleMs(endMs, spec),
+            CutterRebaseSubtitleMs(endMs, spec),
             separator);
 
     line.replace(
@@ -2984,7 +2665,7 @@ bool CutterStartsWithAsciiNoCase(
 
 bool CutterRewriteAssDialogueLine(
     std::string& line,
-    const CutterSubtitleSyncSpec& spec) {
+    const CutterSubtitleRebaseSpec& spec) {
 
     if (!CutterStartsWithAsciiNoCase(
             line, "Dialogue:")) {
@@ -3028,10 +2709,10 @@ bool CutterRewriteAssDialogueLine(
 
     const std::string newStart =
         CutterFormatAssClock(
-            CutterTransformSubtitleMs(startMs, spec));
+            CutterRebaseSubtitleMs(startMs, spec));
     const std::string newEnd =
         CutterFormatAssClock(
-            CutterTransformSubtitleMs(endMs, spec));
+            CutterRebaseSubtitleMs(endMs, spec));
 
     line.replace(
         comma2 + 1,
@@ -3142,7 +2823,7 @@ double CutterCurrentVideoFps() {
 
 bool CutterRewriteMicroDvd(
     std::string& data,
-    const CutterSubtitleSyncSpec& spec,
+    const CutterSubtitleRebaseSpec& spec,
     double videoFps,
     std::wstring& error) {
 
@@ -3224,7 +2905,7 @@ bool CutterRewriteMicroDvd(
                         static_cast<long long>(
                             std::llround(
                                 static_cast<double>(
-                                    CutterTransformSubtitleMs(
+                                    CutterRebaseSubtitleMs(
                                         startMs, spec)) *
                                 fps / 1000.0)));
                 const long long newEnd =
@@ -3233,7 +2914,7 @@ bool CutterRewriteMicroDvd(
                         static_cast<long long>(
                             std::llround(
                                 static_cast<double>(
-                                    CutterTransformSubtitleMs(
+                                    CutterRebaseSubtitleMs(
                                         endMs, spec)) *
                                 fps / 1000.0)));
 
@@ -3259,7 +2940,7 @@ bool CutterRewriteMicroDvd(
 
     if (!sawCue) {
         error =
-            L"Subtitle sync currently supports text MicroDVD .sub files. The selected .sub file does not appear to be MicroDVD text.";
+            L"Subtitle timing correction supports text MicroDVD .sub files. The selected .sub file does not appear to be MicroDVD text.";
         return false;
     }
 
@@ -3267,9 +2948,9 @@ bool CutterRewriteMicroDvd(
     return true;
 }
 
-bool CutterRewriteSubtitleTiming(
+bool CutterRebaseSubtitleTiming(
     const std::wstring& sourcePath,
-    const CutterSubtitleSyncSpec& spec,
+    const CutterSubtitleRebaseSpec& spec,
     double videoFps,
     std::wstring& outputPath,
     std::wstring& error) {
@@ -3288,7 +2969,7 @@ bool CutterRewriteSubtitleTiming(
          (static_cast<unsigned char>(data[0]) == 0xFE &&
           static_cast<unsigned char>(data[1]) == 0xFF))) {
         error =
-            L"Subtitle timing correction does not yet support UTF-16 subtitle files. Convert this subtitle to UTF-8, or use zero offset with drift correction off.";
+            L"Subtitle timing correction does not support UTF-16 subtitle files. Convert this subtitle to UTF-8.";
         return false;
     }
 
@@ -3385,14 +3066,14 @@ bool CutterRewriteSubtitleTiming(
     }
 
     const std::wstring suffix =
-        L".synced" + ext;
+        L".rebased" + ext;
     outputPath =
         CutterTempPath(suffix.c_str());
 
     if (!CutterWriteBinaryFile(
             outputPath, data)) {
         error =
-            L"Could not write the temporary synced subtitle file.";
+            L"Could not write the temporary rebased subtitle file.";
         outputPath.clear();
         return false;
     }
@@ -3898,26 +3579,24 @@ void ResetCutterSelection(bool clearInputs) {
 
 void SetCutterMark(bool markA) {
     if (!g_mpvReady || g_currentMediaPath.empty()) {
-        ShowOsdText(L"Open a file first", 1300);
         return;
     }
     const double value = std::max(0.0, MpvGetDouble("time-pos", g_timePos));
     if (markA) {
         g_cutMarkA = value;
-        // A defines a new cut range. Until the user explicitly picks B, use
-        // the end of the currently loaded file as the natural end marker.
-        g_cutMarkBAutoEnd = true;
-        if (std::isfinite(g_duration) && g_duration > value) {
-            g_cutMarkB = g_duration;
-        } else {
-            g_cutMarkB = -1.0;
+        // Never replace an explicitly selected B when A is changed again.
+        if (g_cutMarkB < 0.0 || g_cutMarkBAutoEnd) {
+            g_cutMarkBAutoEnd = true;
+            g_cutMarkB = (std::isfinite(g_duration) && g_duration > value)
+                ? g_duration : -1.0;
         }
     } else {
+        if (g_cutMarkA < 0.0) g_cutMarkA = 0.0;
         g_cutMarkBAutoEnd = false;
         g_cutMarkB = value;
     }
     SyncCutterControls();
-    if (markA && g_cutMarkB >= 0.0) {
+    if (markA && g_cutMarkBAutoEnd && g_cutMarkB >= 0.0) {
         ShowOsdText(L"A  " + CutterTimestamp(value) + L"   B  END", 1900);
     } else {
         ShowOsdText(std::wstring(markA ? L"A  " : L"B  ") + CutterTimestamp(value), 1700);
@@ -4207,11 +3886,11 @@ void BeginCutterCropSelection() {
     }
 
     if (g_currentMediaPath.empty() || !ReadCutterVideoInfo()) {
-        ShowOsdText(L"Open a video first", 1400);
         return;
     }
     if (!CutterReencodesVideo()) {
         g_cutMode = CutterOutputMode::Mp4H264;
+        g_cutOutputPath.clear();
         SyncCutterControls();
         ShowOsdText(L"Crop requires re-encode; switched to MP4 H.264", 2200);
     }
@@ -4303,11 +3982,95 @@ std::wstring FfconcatEscape(std::wstring path) {
     return out;
 }
 
-void CleanupCutterSyncedSubtitleTemps() {
-    for (const auto& path : g_cutSyncedSubtitlePaths) {
+void CleanupCutterRebasedSubtitleTemps() {
+    for (const auto& path : g_cutRebasedSubtitlePaths) {
         if (!path.empty()) DeleteFileW(path.c_str());
     }
-    g_cutSyncedSubtitlePaths.clear();
+    g_cutRebasedSubtitlePaths.clear();
+}
+
+void CutterTrackSubtitleTempPath(const std::filesystem::path& path) {
+    if (!path.empty()) g_cutRebasedSubtitlePaths.push_back(path.wstring());
+}
+
+bool CutterCopySubtitleToWorkingTemp(
+    const std::wstring& sourcePath,
+    std::wstring& workingPath,
+    std::wstring& error) {
+    workingPath.clear();
+    error.clear();
+
+    const std::filesystem::path source(sourcePath);
+    const std::wstring extension = source.extension().wstring();
+    if (source.empty() || extension.empty()) {
+        error = L"Subtitle sync needs a subtitle file with a recognized extension.";
+        return false;
+    }
+
+    const std::filesystem::path temp(CutterTempPath(extension.c_str()));
+    std::error_code ec;
+    std::filesystem::copy_file(
+        source, temp, std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+        error = L"Could not create the temporary subtitle sync working file.\n\n" +
+                Utf8ToWide(ec.message());
+        return false;
+    }
+
+    CutterTrackSubtitleTempPath(temp);
+    workingPath = temp.wstring();
+    return true;
+}
+
+bool CutterApplyProvenSubsync(
+    const std::wstring& workingInput,
+    std::int64_t offsetMs,
+    std::wstring& syncedPath,
+    std::wstring& error) {
+    syncedPath.clear();
+    error.clear();
+
+    const std::filesystem::path input(workingInput);
+    const auto kind = winterstatic::subsync::detect_kind(input);
+    const bool textKind =
+        kind == winterstatic::subsync::SubtitleKind::Srt ||
+        kind == winterstatic::subsync::SubtitleKind::Ass ||
+        kind == winterstatic::subsync::SubtitleKind::Ssa ||
+        kind == winterstatic::subsync::SubtitleKind::WebVtt;
+    if (!textKind) {
+        error = L"Subtitle sync currently supports SRT, ASS, SSA, and WebVTT.";
+        return false;
+    }
+
+    winterstatic::subsync::SyncSpec spec{};
+    spec.constant_offset_ms = offsetMs;
+    spec.drift_enabled = false;
+
+    // The proven core writes a sibling .synced file. Because workingInput is
+    // always a Cutter-owned temporary path, the user's original subtitle is
+    // never modified or written beside. Track the predicted output before the
+    // call so a partial failure is still cleaned up.
+    const std::filesystem::path predicted =
+        winterstatic::subsync::default_output_path(input);
+    CutterTrackSubtitleTempPath(predicted);
+
+    try {
+        const auto result = winterstatic::subsync::apply_sync(input, spec, true);
+        if (!result.success) {
+            error = result.message.empty()
+                ? L"Subtitle sync failed."
+                : Utf8ToWide(result.message);
+            return false;
+        }
+        syncedPath = result.output_primary.wstring();
+        if (!result.output_companion.empty()) {
+            CutterTrackSubtitleTempPath(result.output_companion);
+        }
+        return !syncedPath.empty();
+    } catch (const std::exception& ex) {
+        error = L"Subtitle sync failed.\n\n" + Utf8ToWide(ex.what());
+        return false;
+    }
 }
 
 void CleanupCutterWorkerTemps() {
@@ -4317,7 +4080,7 @@ void CleanupCutterWorkerTemps() {
     if (!g_cutProgressPhasePath.empty()) DeleteFileW(g_cutProgressPhasePath.c_str());
     if (!g_cutDonePath.empty()) DeleteFileW(g_cutDonePath.c_str());
 
-    CleanupCutterSyncedSubtitleTemps();
+    CleanupCutterRebasedSubtitleTemps();
 
     g_cutWorkerScriptPath.clear();
     g_cutConcatPath.clear();
@@ -4347,10 +4110,27 @@ void CleanupCutterWorker() {
 }
 
 void CleanupLingeringCutterConsoles() {
+    for (HANDLE process : g_cutLingeringProcesses) {
+        if (process) CloseHandle(process);
+    }
+    g_cutLingeringProcesses.clear();
     for (HANDLE job : g_cutLingeringJobs) {
         if (job) CloseHandle(job);
     }
     g_cutLingeringJobs.clear();
+}
+
+void ReapLingeringCutterConsoles() {
+    for (size_t i = 0; i < g_cutLingeringProcesses.size();) {
+        if (WaitForSingleObject(g_cutLingeringProcesses[i], 0) == WAIT_OBJECT_0) {
+            CloseHandle(g_cutLingeringProcesses[i]);
+            CloseHandle(g_cutLingeringJobs[i]);
+            g_cutLingeringProcesses.erase(g_cutLingeringProcesses.begin() + i);
+            g_cutLingeringJobs.erase(g_cutLingeringJobs.begin() + i);
+        } else {
+            ++i;
+        }
+    }
 }
 
 int ReadCutterDoneStatus() {
@@ -4406,37 +4186,39 @@ void UpdateCutterProgress() {
 }
 
 void PollCutterWorker() {
+    ReapLingeringCutterConsoles();
     if (!g_cutWorkerProcess) return;
     UpdateCutterProgress();
 
-    // If the user asked to keep the visible PowerShell console open, the worker
-    // writes a completion marker before waiting for Enter.  Treat the conversion
-    // as finished at that point so another job can be started while the old
-    // console remains available for inspection.
-    if (g_cutWorkerKeepConsoleOpen) {
+    // Every worker writes a completion marker, including failures where a
+    // visible console remains open despite "close on success" being enabled.
+    // Recognize completion independently of the console's lifetime.
+    {
         const int doneStatus = ReadCutterDoneStatus();
-        if (doneStatus >= 0) {
+        if (doneStatus == 0 || doneStatus == 1) {
             g_cutProgressFraction = doneStatus == 0 ? 1.0 : 0.0;
             g_cutProgressIndeterminate = false;
 
-            if (g_cutWorkerProcess) {
-                CloseHandle(g_cutWorkerProcess);
-                g_cutWorkerProcess = nullptr;
-            }
             if (g_cutWorkerJob) {
+                // Closing a kill-on-close job while PowerShell is reading an
+                // error would close the console. Retain both handles together
+                // and reap them after the diagnostic console exits.
+                g_cutLingeringProcesses.push_back(g_cutWorkerProcess);
                 g_cutLingeringJobs.push_back(g_cutWorkerJob);
+                g_cutWorkerProcess = nullptr;
                 g_cutWorkerJob = nullptr;
             }
             g_cutWorkerPid = 0;
 
             CleanupCutterWorkerTemps();
             g_cutWorkerKeepConsoleOpen = false;
+            if (!g_cutOverwriteEnabled) g_cutOutputPath.clear();
 
             if (g_cutProgress) InvalidateRect(g_cutProgress, nullptr, FALSE);
             if (g_cutNuke) InvalidateRect(g_cutNuke, nullptr, FALSE);
             if (g_cutConvert) InvalidateRect(g_cutConvert, nullptr, FALSE);
-            ShowOsdText(doneStatus == 0 ? L"Convert finished - PowerShell left open"
-                                        : L"Convert stopped / failed - PowerShell left open",
+            ShowOsdText(doneStatus == 0 ? L"Convert finished"
+                                        : L"Convert stopped / failed (check PowerShell if visible)",
                         2600);
             return;
         }
@@ -4445,11 +4227,14 @@ void PollCutterWorker() {
     if (WaitForSingleObject(g_cutWorkerProcess, 0) != WAIT_OBJECT_0) return;
     DWORD exitCode = 0;
     GetExitCodeProcess(g_cutWorkerProcess, &exitCode);
-    if (exitCode == 0) g_cutProgressFraction = 1.0;
-    else g_cutProgressFraction = 0.0;
+    const int markerStatus = ReadCutterDoneStatus();
+    const bool succeeded = (markerStatus == 0) ||
+        (markerStatus != 1 && exitCode == 0);
+    g_cutProgressFraction = succeeded ? 1.0 : 0.0;
+    if (!g_cutOverwriteEnabled) g_cutOutputPath.clear();
     CleanupCutterWorker();
     if (g_cutProgress) InvalidateRect(g_cutProgress, nullptr, FALSE);
-    ShowOsdText(exitCode == 0 ? L"Convert finished" : L"Convert stopped / failed", 2200);
+    ShowOsdText(succeeded ? L"Convert finished" : L"Convert stopped / failed", 2200);
 }
 
 void ClearCutterInputs() {
@@ -4466,9 +4251,6 @@ void ClearCutterInputs() {
     ResetCutterManagedSubtitleTracksForSource();
     g_cutSubtitlesEnabled = false;
     g_cutSubtitlePath.clear();
-    g_cutSubtitleSyncASet = false;
-    g_cutSubtitleSyncBSet = false;
-    g_cutSubtitleDriftEnabled = false;
     SyncCutterSubtitleContextControls();
     if (g_cutSubtitles) InvalidateRect(g_cutSubtitles, nullptr, FALSE);
     SaveSettings();
@@ -4486,6 +4268,10 @@ void NukeCutter() {
     } else {
         ShowOsdText(L"No conversion process is running", 1100);
     }
+
+    for (auto& track : g_cutSubtitleTracks) track.offsetMs = 0;
+    g_cutSubsyncTrackIndex = -1;
+    if (g_cutSubtitleSyncOpen) SyncCutterSubsyncContextControls();
 }
 
 std::wstring CutterSuggestedOutputPath(bool makeUnique) {
@@ -4518,7 +4304,7 @@ std::wstring CutterSuggestedOutputPath(bool makeUnique) {
 
 bool EnsureCutterOutputPath() {
     if (!g_cutOutputPath.empty()) return true;
-    g_cutOutputPath = CutterSuggestedOutputPath(true);
+    g_cutOutputPath = CutterSuggestedOutputPath(!g_cutOverwriteEnabled);
     if (g_cutOutputPath.empty()) {
         MessageBoxW(g_main, L"Could not create an automatic output filename.",
                     kAppTitle, MB_OK | MB_ICONERROR);
@@ -4529,11 +4315,71 @@ bool EnsureCutterOutputPath() {
     return true;
 }
 
+// Normalize on Windows without requiring the output to exist. Compare paths
+// case-insensitively so Overwrite can never replace a source input.
+std::wstring CutterComparablePath(const std::wstring& path) {
+    std::error_code ec;
+    const auto absolute = std::filesystem::absolute(std::filesystem::path(path), ec);
+    return ec ? std::filesystem::path(path).lexically_normal().wstring()
+              : absolute.lexically_normal().wstring();
+}
+
+bool CutterOutputIsInput(const std::wstring& output) {
+    const std::wstring target = CutterComparablePath(output);
+    for (const auto& input : g_cutInputs) {
+        if (_wcsicmp(target.c_str(), CutterComparablePath(input).c_str()) == 0)
+            return true;
+    }
+    if (g_cutInputs.empty() && !g_currentMediaPath.empty()) {
+        return _wcsicmp(target.c_str(),
+                        CutterComparablePath(g_currentMediaPath).c_str()) == 0;
+    }
+    return false;
+}
+
+std::wstring CutterAvailableOutputPath(const std::wstring& original) {
+    if (!FileExists(original)) return original;
+    const std::filesystem::path path(original);
+    const std::wstring stem = path.stem().wstring();
+    std::wstring base = stem;
+    int first = 2;
+    const size_t underscore = stem.find_last_of(L'_');
+    if (underscore != std::wstring::npos && underscore + 1 < stem.size()) {
+        const std::wstring digits = stem.substr(underscore + 1);
+        if (std::all_of(digits.begin(), digits.end(), [](wchar_t c) {
+                return c >= L'0' && c <= L'9';
+            })) {
+            try {
+                const int n = std::stoi(digits);
+                if (n >= 2 && n < 9999) {
+                    base = stem.substr(0, underscore);
+                    first = n + 1;
+                }
+            } catch (const std::exception&) { /* Keep full stem. */ }
+        }
+    }
+    for (int n = first; n < 10000; ++n) {
+        const auto candidate = path.parent_path() /
+            (base + L"_" + std::to_wstring(n) + path.extension().wstring());
+        if (!FileExists(candidate.wstring())) return candidate.wstring();
+    }
+    return L"";
+}
+
+bool CutterOutputPathLooksTooLong(const std::wstring& path) {
+    if (path.size() >= 240) return true;
+
+    const std::wstring filename =
+        std::filesystem::path(path).filename().wstring();
+
+    return filename.size() >= 240;
+}
+
 bool ChooseCutterOutput() {
     const std::wstring source = !g_cutInputs.empty()
         ? g_cutInputs.front() : g_currentMediaPath;
     if (source.empty()) {
-        MessageBoxW(g_main, L"Open an input file first.", kAppTitle, MB_OK | MB_ICONINFORMATION);
+        ShowCutterNeedsInputStatus();
         return false;
     }
 
@@ -4552,7 +4398,8 @@ bool ChooseCutterOutput() {
     ofn.lpstrFile = file.data();
     ofn.nMaxFile = static_cast<DWORD>(file.size());
     ofn.lpstrDefExt = ext.c_str();
-    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER;
+    if (g_cutOverwriteEnabled) ofn.Flags |= OFN_OVERWRITEPROMPT;
     if (!GetSaveFileNameW(&ofn)) return false;
     g_cutOutputPath = file.data();
     ShowOsdText(L"Output: " + std::filesystem::path(g_cutOutputPath).filename().wstring(), 1800);
@@ -4578,8 +4425,13 @@ std::wstring CutterVideoFilter(const std::wstring& burnSubtitlePath = L"") {
         if (!filter.empty()) filter += L",";
         filter += L"scale=-2:" + std::to_wstring(height);
     } else if (g_cutCropActive) {
+        // Keep exact crop bounds; avoid odd-height 4:2:0 edge flicker by
+        // processing the cropped image as 4:4:4 before padding to even dimensions.
+        const bool exactCrop = g_cutCrop.valid && g_cutVideoInfo.valid;
         if (!filter.empty()) filter += L",";
+        if (exactCrop) filter += L"format=yuv444p,";
         filter += L"pad=ceil(iw/2)*2:ceil(ih/2)*2:0:0:black";
+        if (exactCrop) filter += L",format=yuv420p";
     }
 
     // Burn-in is deliberately last so subtitle placement is based on the final
@@ -4595,7 +4447,8 @@ std::wstring CutterAudioFilterForOffset(int offsetMs, bool padForVideo) {
     if (offsetMs == 0) return L"";
 
     if (offsetMs > 0) {
-        return L"adelay=" + std::to_wstring(offsetMs) + L":all=1";
+        return L"asetpts=PTS-STARTPTS,adelay=" +
+               std::to_wstring(offsetMs) + L":all=1";
     }
 
     const double seconds = static_cast<double>(-offsetMs) / 1000.0;
@@ -4690,34 +4543,18 @@ bool StartCutterConvert() {
     const std::wstring jobSubtitlePath = g_cutSubtitlePath;
     const std::wstring jobSubtitleTitle = g_cutSubtitleTitle;
     const bool jobKeepEmbeddedSubtitles = g_cutKeepEmbeddedSubtitles;
-    int jobSubtitleOffsetMs = g_cutSubtitleOffsetMs;
-    if (g_cutSubOffsetEdit) {
-        if (!CutterParseSubtitleOffsetText(jobSubtitleOffsetMs, true)) return false;
-        g_cutSubtitleOffsetMs = jobSubtitleOffsetMs;
-    }
-    const bool jobSubtitleSyncASet = g_cutSubtitleSyncASet;
-    const bool jobSubtitleSyncBSet = g_cutSubtitleSyncBSet;
-    const double jobSubtitleSyncAVideoSeconds = g_cutSubtitleSyncAVideoSeconds;
-    const double jobSubtitleSyncBVideoSeconds = g_cutSubtitleSyncBVideoSeconds;
-    const int jobSubtitleSyncAOffsetMs = g_cutSubtitleSyncAOffsetMs;
-    const int jobSubtitleSyncBOffsetMs = g_cutSubtitleSyncBOffsetMs;
-    const bool jobSubtitleDriftEnabled =
-        g_cutSubtitleDriftEnabled &&
-        jobSubtitleSyncASet &&
-        jobSubtitleSyncBSet &&
-        CutterSubtitleDriftReady();
     if (g_cutWorkerProcess) {
         MessageBoxW(g_main, L"A conversion is already running. Use NUKE to stop it first.",
                     kAppTitle, MB_OK | MB_ICONINFORMATION);
         return false;
     }
 
-    CleanupCutterSyncedSubtitleTemps();
+    CleanupCutterRebasedSubtitleTemps();
     if (g_cutInputs.empty() && !g_currentMediaPath.empty()) {
         g_cutInputs.push_back(g_currentMediaPath);
     }
     if (g_cutInputs.empty()) {
-        MessageBoxW(g_main, L"Open an input file first.", kAppTitle, MB_OK | MB_ICONINFORMATION);
+        ShowCutterNeedsInputStatus();
         return false;
     }
     EnsureCutterManagedAudioSource();
@@ -4732,11 +4569,39 @@ bool StartCutterConvert() {
             !CutterCommitAudioSyncOffsetEdit(true)) {
             return false;
         }
+
+        // SUBS SYNC is per managed track. If the row is open, make sure the
+        // current edit is committed before the managed subtitle job snapshot.
+        if (g_cutSubtitleSyncOpen) {
+            EnsureCutterSubtitleTracksInitialized();
+            if (!CutterCommitSubsyncOffsetEdit(true)) return false;
+        }
     }
 
     if (!CutterValidateManagedAudioTracks(jobMode)) return false;
     if (!CutterValidateSubtitles(jobMode)) return false;
     if (!EnsureCutterOutputPath()) return false;
+    if (CutterOutputIsInput(g_cutOutputPath)) {
+        MessageBoxW(g_main, L"The output path is the same as a source input.\n\n"
+                    L"Choose another output filename to protect the original.",
+                    kAppTitle, MB_OK | MB_ICONERROR);
+        return false;
+    }
+    if (!overwriteOutput && FileExists(g_cutOutputPath)) {
+        const std::wstring resolved = CutterAvailableOutputPath(g_cutOutputPath);
+        if (resolved.empty()) {
+            MessageBoxW(g_main, L"Could not find an unused output filename.",
+                        kAppTitle, MB_OK | MB_ICONERROR);
+            return false;
+        }
+        g_cutOutputPath = resolved;
+        MessageBoxW(g_main, (L"Output already exists. Overwrite is OFF.\n\n"
+                    L"This conversion will use:\n" + g_cutOutputPath).c_str(),
+                    kAppTitle, MB_OK | MB_ICONINFORMATION);
+    }
+    if (CutterOutputPathLooksTooLong(g_cutOutputPath)) {
+        ShowOsdText(L"Long output path - some tools may fail; trying anyway", 3000);
+    }
 
     const std::wstring ffmpeg = FindCutterTool(L"ffmpeg.exe");
     if (ffmpeg.empty()) {
@@ -4774,11 +4639,8 @@ bool StartCutterConvert() {
 
     if (!multi) {
         // mpv playlist/auto-next changes can replace the primary source without
-        // passing through LoadPlaylist(). Capture the current external sync
-        // state, then invalidate source-derived embedded rows if necessary.
-        if (g_cutSubtitleTracksInitialized) {
-            StoreLegacySubtitleSyncToManaged();
-        }
+        // passing through LoadPlaylist(). Invalidate source-derived embedded rows
+        // if necessary.
         EnsureCutterManagedSubtitleSource();
 
         // If the user prepared external subtitles before opening the video, the
@@ -4788,18 +4650,12 @@ bool StartCutterConvert() {
         if (!g_cutSubtitleTracksInitialized &&
             !g_cutSubtitleTracks.empty()) {
             EnsureCutterSubtitleTracksInitialized();
-            if (CutterHasActiveSubtitleSyncTarget()) {
-                LoadManagedSubtitleSyncToLegacy();
-            }
         }
     }
 
-    if (g_cutSubtitleTracksInitialized) {
-        StoreLegacySubtitleSyncToManaged();
-    }
     const bool useManagedSubtitles =
         g_cutSubtitleTracksInitialized && !multi;
-    const auto jobSubtitleTracks = g_cutSubtitleTracks;
+    auto jobSubtitleTracks = g_cutSubtitleTracks;
 
     const bool subtitleSoft = !useManagedSubtitles &&
                               jobSubtitlesEnabled &&
@@ -4812,33 +4668,23 @@ bool StartCutterConvert() {
     const bool subtitleTimingRewriteNeeded =
         !useManagedSubtitles &&
         jobSubtitlesEnabled &&
-        (jobSubtitleOffsetMs != 0 ||
-         jobSubtitleDriftEnabled ||
-         (subtitleBurn && start > 0.0005));
+        subtitleBurn &&
+        start > 0.0005;
 
     if (subtitleTimingRewriteNeeded) {
-        CutterSubtitleSyncSpec syncSpec{};
-        syncSpec.constantOffsetMs = jobSubtitleOffsetMs;
-        syncSpec.driftEnabled = jobSubtitleDriftEnabled;
-        syncSpec.videoASeconds = jobSubtitleSyncAVideoSeconds;
-        syncSpec.videoBSeconds = jobSubtitleSyncBVideoSeconds;
-        syncSpec.offsetAMs = jobSubtitleSyncAOffsetMs;
-        syncSpec.offsetBMs = jobSubtitleSyncBOffsetMs;
-        // Soft subtitle inputs are separately seeked to A below. Burned
-        // subtitles are read by a filter, so make their rewritten cue times
-        // relative to the trimmed output timeline here.
-        syncSpec.timelineShiftMs = subtitleBurn
-            ? static_cast<int>(std::llround(start * 1000.0))
-            : 0;
+        CutterSubtitleRebaseSpec rebaseSpec{};
+        // Burned subtitles are read by a filter, so make their rewritten cue
+        // times relative to the trimmed output timeline here.
+        rebaseSpec.timelineShiftMs =
+            static_cast<int>(std::llround(start * 1000.0));
 
-
-        CleanupCutterSyncedSubtitleTemps();
+        CleanupCutterRebasedSubtitleTemps();
 
         std::wstring rewrittenPath;
         std::wstring rewriteError;
-        if (!CutterRewriteSubtitleTiming(
+        if (!CutterRebaseSubtitleTiming(
                 jobSubtitlePath,
-                syncSpec,
+                rebaseSpec,
                 CutterCurrentVideoFps(),
                 rewrittenPath,
                 rewriteError)) {
@@ -4850,7 +4696,7 @@ bool StartCutterConvert() {
             return false;
         }
         jobSubtitleTimingPath = rewrittenPath;
-        g_cutSyncedSubtitlePaths.push_back(rewrittenPath);
+        g_cutRebasedSubtitlePaths.push_back(rewrittenPath);
     }
 
     std::vector<std::wstring> managedSubtitleTimingPaths(
@@ -4860,6 +4706,8 @@ bool StartCutterConvert() {
     int managedBurnSubtitleIndex = -1;
 
     if (useManagedSubtitles) {
+        const std::wstring primarySubtitleSource = CutterPrimaryInputPath();
+
         for (size_t i = 0; i < jobSubtitleTracks.size(); ++i) {
             const auto& track = jobSubtitleTracks[i];
             if (!track.included) continue;
@@ -4869,168 +4717,148 @@ bool StartCutterConvert() {
                 managedBurnSubtitleIndex = static_cast<int>(i);
             }
 
-            const bool driftReady =
-                track.driftEnabled &&
-                CutterManagedSubtitleDriftReady(track);
-
-            if (track.embedded) {
-                // Zero-correction fast path: keep mapping the original embedded
-                // stream directly. Extraction is only needed when the timing
-                // actually changes.
-                const bool rewriteNeeded =
-                    track.offsetMs != 0 || driftReady;
-                if (!rewriteNeeded) continue;
-
-                if (!track.syncCapable || track.ffmpegStreamIndex < 0) {
-                    CleanupCutterSyncedSubtitleTemps();
-                    MessageBoxW(
-                        g_main,
-                        L"The selected embedded subtitle cannot be identified safely for timing correction.",
-                        kAppTitle,
-                        MB_OK | MB_ICONWARNING);
-                    return false;
-                }
-
-                if (ffmpeg.empty()) {
-                    CleanupCutterSyncedSubtitleTemps();
-                    MessageBoxW(
-                        g_main,
-                        L"ffmpeg.exe is required to extract an embedded subtitle for timing correction.",
-                        kAppTitle,
-                        MB_OK | MB_ICONWARNING);
-                    return false;
-                }
-
-                const std::wstring extractBase =
-                    CutterTempPath(L".embedded-subtitle");
-                winterstatic::subtitle::ExtractOptions extractOptions;
-                extractOptions.tools.ffmpeg =
-                    std::filesystem::path(ffmpeg);
-                if (!ffprobe.empty()) {
-                    extractOptions.tools.ffprobe =
-                        std::filesystem::path(ffprobe);
-                }
-                extractOptions.overwrite = true;
-
-                const std::string sourceCodec =
-                    WideToUtf8(track.codec);
-                if (sourceCodec.empty()) {
-                    CleanupCutterSyncedSubtitleTemps();
-                    MessageBoxW(
-                        g_main,
-                        L"Subtitle codec information is unavailable; format-preserving extraction cannot continue.",
-                        kAppTitle,
-                        MB_OK | MB_ICONWARNING);
-                    return false;
-                }
-
-                const auto extractResult =
-                    winterstatic::subtitle::extract_subtitle_text(
-                        std::filesystem::path(
-                            AbsoluteLocalPath(g_cutInputs.front())),
-                        track.ffmpegStreamIndex,
-                        sourceCodec,
-                        std::filesystem::path(extractBase),
-                        extractOptions);
-                if (!extractResult.success) {
-                    CleanupCutterSyncedSubtitleTemps();
-                    const std::wstring details =
-                        Utf8ToWide(extractResult.message);
-                    MessageBoxW(
-                        g_main,
-                        (L"Could not extract the selected embedded subtitle for timing correction.\n\n" +
-                         details).c_str(),
-                        kAppTitle,
-                        MB_OK | MB_ICONWARNING);
-                    return false;
-                }
-
-                const std::wstring extractPath =
-                    extractResult.output_path.wstring();
-                g_cutSyncedSubtitlePaths.push_back(extractPath);
-
-                CutterSubtitleSyncSpec syncSpec{};
-                syncSpec.constantOffsetMs = track.offsetMs;
-                syncSpec.driftEnabled = driftReady;
-                syncSpec.videoASeconds = track.syncAVideoSeconds;
-                syncSpec.videoBSeconds = track.syncBVideoSeconds;
-                syncSpec.offsetAMs = track.syncAOffsetMs;
-                syncSpec.offsetBMs = track.syncBOffsetMs;
-                // Corrected embedded Soft subtitles become temporary external
-                // subtitle inputs and are seeked to A below, just like ordinary
-                // external Soft subtitles.
-                syncSpec.timelineShiftMs = 0;
-
-                std::wstring rewrittenPath;
-                std::wstring rewriteError;
-                if (!CutterRewriteSubtitleTiming(
-                        extractPath,
-                        syncSpec,
-                        CutterCurrentVideoFps(),
-                        rewrittenPath,
-                        rewriteError)) {
-                    CleanupCutterSyncedSubtitleTemps();
-                    MessageBoxW(
-                        g_main,
-                        rewriteError.c_str(),
-                        kAppTitle,
-                        MB_OK | MB_ICONWARNING);
-                    return false;
-                }
-
-                managedSubtitleTimingPaths[i] = rewrittenPath;
-                managedSubtitleUsesInputFile[i] = true;
-                g_cutSyncedSubtitlePaths.push_back(rewrittenPath);
+            // Zero-offset embedded soft tracks retain the original direct-map
+            // path. Only a track that actually needs sync is extracted.
+            if (track.embedded && track.offsetMs == 0) {
                 continue;
             }
 
-            std::wstring timingPath = track.externalPath;
-            const bool rewriteNeeded =
-                track.offsetMs != 0 ||
-                driftReady ||
-                (track.mode == CutterSubtitleMode::Burn &&
-                 start > 0.0005);
+            if (track.offsetMs != 0 && !CutterSubsyncTrackSupported(track)) {
+                CleanupCutterRebasedSubtitleTemps();
+                MessageBoxW(
+                    g_main,
+                    L"Subtitle sync currently supports text subtitle tracks only (SRT, ASS, SSA, and WebVTT).\n\n"
+                    L"Set this track's offset back to 0, or use a supported text subtitle.",
+                    kAppTitle, MB_OK | MB_ICONINFORMATION);
+                return false;
+            }
 
-            if (rewriteNeeded) {
-                CutterSubtitleSyncSpec syncSpec{};
-                syncSpec.constantOffsetMs = track.offsetMs;
-                syncSpec.driftEnabled = driftReady;
-                syncSpec.videoASeconds = track.syncAVideoSeconds;
-                syncSpec.videoBSeconds = track.syncBVideoSeconds;
-                syncSpec.offsetAMs = track.syncAOffsetMs;
-                syncSpec.offsetBMs = track.syncBOffsetMs;
-                syncSpec.timelineShiftMs =
-                    track.mode == CutterSubtitleMode::Burn
-                        ? static_cast<int>(
-                              std::llround(start * 1000.0))
-                        : 0;
+            std::wstring timingPath;
 
-                std::wstring rewrittenPath;
-                std::wstring rewriteError;
-                if (!CutterRewriteSubtitleTiming(
-                        track.externalPath,
-                        syncSpec,
-                        CutterCurrentVideoFps(),
-                        rewrittenPath,
-                        rewriteError)) {
-                    CleanupCutterSyncedSubtitleTemps();
+            if (track.embedded) {
+                if (track.offsetMs == 0) continue;
+                if (primarySubtitleSource.empty() || track.ffmpegStreamIndex < 0) {
+                    CleanupCutterRebasedSubtitleTemps();
                     MessageBoxW(
                         g_main,
-                        rewriteError.c_str(),
-                        kAppTitle,
+                        L"Could not resolve the selected embedded subtitle stream for syncing.",
+                        kAppTitle, MB_OK | MB_ICONWARNING);
+                    return false;
+                }
+
+                winterstatic::subtitle::ToolPaths tools;
+                tools.ffmpeg = std::filesystem::path(ffmpeg);
+                if (!ffprobe.empty()) tools.ffprobe = std::filesystem::path(ffprobe);
+                winterstatic::subtitle::ExtractOptions extractOptions;
+                extractOptions.tools = tools;
+                extractOptions.overwrite = true;
+
+                const std::filesystem::path extractBase(
+                    CutterTempPath(L".embedded-subtitle"));
+                const auto extractResult =
+                    winterstatic::subtitle::extract_subtitle_text(
+                        std::filesystem::path(primarySubtitleSource),
+                        track.ffmpegStreamIndex,
+                        WideToUtf8(track.codec),
+                        extractBase,
+                        extractOptions);
+                if (!extractResult.success) {
+                    CleanupCutterRebasedSubtitleTemps();
+                    const std::wstring detail = extractResult.message.empty()
+                        ? L"Embedded subtitle extraction failed."
+                        : Utf8ToWide(extractResult.message);
+                    MessageBoxW(
+                        g_main, detail.c_str(), kAppTitle,
                         MB_OK | MB_ICONWARNING);
                     return false;
                 }
 
-                timingPath = rewrittenPath;
-                g_cutSyncedSubtitlePaths.push_back(
-                    rewrittenPath);
+                CutterTrackSubtitleTempPath(extractResult.output_path);
+                timingPath = extractResult.output_path.wstring();
+            } else {
+                timingPath = track.externalPath;
+
+                // Step 1: constant-offset sync on the full source timeline.
+                // The proven module only ever sees a Cutter-owned working copy,
+                // never the user's original file.
+                if (track.offsetMs != 0) {
+                    std::wstring workingCopy;
+                    std::wstring copyError;
+                    if (!CutterCopySubtitleToWorkingTemp(
+                            track.externalPath, workingCopy, copyError)) {
+                        CleanupCutterRebasedSubtitleTemps();
+                        MessageBoxW(
+                            g_main, copyError.c_str(), kAppTitle,
+                            MB_OK | MB_ICONWARNING);
+                        return false;
+                    }
+
+                    std::wstring syncedPath;
+                    std::wstring syncError;
+                    if (!CutterApplyProvenSubsync(
+                            workingCopy, track.offsetMs, syncedPath, syncError)) {
+                        CleanupCutterRebasedSubtitleTemps();
+                        MessageBoxW(
+                            g_main, syncError.c_str(), kAppTitle,
+                            MB_OK | MB_ICONWARNING);
+                        return false;
+                    }
+                    timingPath = std::move(syncedPath);
+                }
+
+                // Step 2: rebase to the cut (Burn, A > 0) after sync, using
+                // whatever step 1 produced (or the original if offset is 0).
+                const bool rewriteNeeded =
+                    track.mode == CutterSubtitleMode::Burn &&
+                    start > 0.0005;
+
+                if (rewriteNeeded) {
+                    CutterSubtitleRebaseSpec rebaseSpec{};
+                    rebaseSpec.timelineShiftMs =
+                        static_cast<int>(std::llround(start * 1000.0));
+
+                    std::wstring rewrittenPath;
+                    std::wstring rewriteError;
+                    if (!CutterRebaseSubtitleTiming(
+                            timingPath,
+                            rebaseSpec,
+                            CutterCurrentVideoFps(),
+                            rewrittenPath,
+                            rewriteError)) {
+                        CleanupCutterRebasedSubtitleTemps();
+                        MessageBoxW(
+                            g_main, rewriteError.c_str(), kAppTitle,
+                            MB_OK | MB_ICONWARNING);
+                        return false;
+                    }
+
+                    timingPath = rewrittenPath;
+                    CutterTrackSubtitleTempPath(rewrittenPath);
+                }
             }
 
-            managedSubtitleTimingPaths[i] =
-                std::move(timingPath);
+            // Embedded tracks: timingPath is already a Cutter-owned temp from
+            // extract_subtitle_text(), so it can go straight to the sync module.
+            // Embedded tracks are Soft only; ffmpeg trims them with -ss, so no
+            // rebase is involved. External tracks were fully handled above.
+            if (track.embedded && track.offsetMs != 0) {
+                std::wstring syncedPath;
+                std::wstring syncError;
+                if (!CutterApplyProvenSubsync(
+                        timingPath, track.offsetMs, syncedPath, syncError)) {
+                    CleanupCutterRebasedSubtitleTemps();
+                    MessageBoxW(
+                        g_main, syncError.c_str(), kAppTitle,
+                        MB_OK | MB_ICONWARNING);
+                    return false;
+                }
+                timingPath = std::move(syncedPath);
+            }
+
+            managedSubtitleTimingPaths[i] = std::move(timingPath);
             managedSubtitleUsesInputFile[i] =
-                track.mode == CutterSubtitleMode::Soft;
+                track.mode == CutterSubtitleMode::Soft &&
+                (!track.embedded || track.offsetMs != 0);
         }
     }
 
@@ -5161,18 +4989,23 @@ bool StartCutterConvert() {
     const bool anyAudioOffset =
         managedAudioHasOffset || (!useManagedAudio && jobAudioOffsetMs != 0);
 
+    const bool copyVideoMode =
+        jobMode == CutterOutputMode::Source ||
+        jobMode == CutterOutputMode::Mkv ||
+        jobMode == CutterOutputMode::Mp4Copy;
+    const bool copyVideoReencodeAudio =
+        anyAudioOffset && copyVideoMode && jobAudioMode == CutterAudioMode::Auto;
+
     if (anyAudioOffset &&
-        (jobMode == CutterOutputMode::Source ||
-         jobMode == CutterOutputMode::Mkv ||
-         jobMode == CutterOutputMode::Mp4Copy ||
-         jobMode == CutterOutputMode::ExtractAudio ||
-         (CutterReencodesVideo() && jobAudioMode == CutterAudioMode::Copy))) {
+        (jobMode == CutterOutputMode::ExtractAudio ||
+         (CutterReencodesVideo() && jobAudioMode == CutterAudioMode::Copy) ||
+         (copyVideoMode && jobAudioMode != CutterAudioMode::Auto))) {
         MessageBoxW(g_main,
                     L"Audio offset requires an audio re-encode.\n\n"
-                    L"Use Audio = Auto for MP4 H.264/WebM, use Audio to M4A, or reset the affected audio track offset to 0.",
+                    L"Use Audio = Auto, use Audio to M4A, or reset the affected audio track offset to 0.",
                     kAppTitle, MB_OK | MB_ICONINFORMATION);
 
-        CleanupCutterSyncedSubtitleTemps();
+        CleanupCutterRebasedSubtitleTemps();
         return false;
     }
 
@@ -5198,7 +5031,8 @@ bool StartCutterConvert() {
     script += L"$phasePath = " + PowerShellQuote(g_cutProgressPhasePath) + L"\r\n";
     script += L"$donePath = " + PowerShellQuote(g_cutDonePath) + L"\r\n";
     script += std::wstring(L"$closeWhenDone = ") + (closePowerShellWhenDone ? L"$true" : L"$false") + L"\r\n";
-    script += L"trap { Set-Content -LiteralPath $donePath -Value '1' -NoNewline; Write-Host ''; Write-Host ('FAILED: ' + $_.Exception.Message) -ForegroundColor Red; if (-not $closeWhenDone) { [void](Read-Host 'Press Enter to close') }; exit 1 }\r\n";
+    script += std::wstring(L"$keepOpenOnFailure = ") + (showPowerShell ? L"$true" : L"$false") + L"\r\n";
+    script += L"trap { Set-Content -LiteralPath $donePath -Value '1' -NoNewline; Write-Host ''; Write-Host ('FAILED: ' + $_.Exception.Message) -ForegroundColor Red; if ($keepOpenOnFailure) { [void](Read-Host 'Press Enter to close') }; exit 1 }\r\n";
     script += L"$runIndex = 0\r\n";
     script += L"$inputArgs = @()\r\n";
     if (multi && !ffprobe.empty()) {
@@ -5212,6 +5046,7 @@ bool StartCutterConvert() {
     script += L"Write-Host 'WinterStatic Video Cutter' -ForegroundColor Cyan\r\n";
     script += L"Write-Host 'Mode: " + std::wstring(CutterModeText(jobMode)) + L"'\r\n";
     script += L"Write-Host 'Resolution: " + g_cutResolutionValue + L"'\r\n";
+
     if (targetKb > 0.0) {
         wchar_t targetBanner[64]{};
         swprintf_s(targetBanner, L"%.0f", targetKb);
@@ -5233,6 +5068,13 @@ bool StartCutterConvert() {
                   L"'\r\n";
     } else if (jobMode == CutterOutputMode::M4A) {
         script += L"Write-Host 'Audio: AAC " + std::to_wstring(jobAudioKbps) +
+                  (useManagedAudio
+                       ? std::wstring(L" kbps; per-track offsets")
+                       : L" kbps; offset " + std::to_wstring(jobAudioOffsetMs) + L" ms") +
+                  L"'\r\n";
+    } else if (copyVideoReencodeAudio) {
+        script += L"Write-Host 'Video: stream copy; Audio: Auto re-encode (" +
+                  std::to_wstring(jobAudioKbps) +
                   (useManagedAudio
                        ? std::wstring(L" kbps; per-track offsets")
                        : L" kbps; offset " + std::to_wstring(jobAudioOffsetMs) + L" ms") +
@@ -5270,14 +5112,10 @@ bool StartCutterConvert() {
     } else if (subtitleSoft) {
         script += L"Write-Host 'Subtitles: soft track - " +
                   std::filesystem::path(jobSubtitlePath).filename().wstring() +
-                  L"; offset " + std::to_wstring(jobSubtitleOffsetMs) + L" ms" +
-                  (jobSubtitleDriftEnabled ? L"; drift correction ON" : L"") +
                   L"'\r\n";
     } else if (subtitleBurn) {
         script += L"Write-Host 'Subtitles: burn-in - " +
                   std::filesystem::path(jobSubtitlePath).filename().wstring() +
-                  L"; offset " + std::to_wstring(jobSubtitleOffsetMs) + L" ms" +
-                  (jobSubtitleDriftEnabled ? L"; drift correction ON" : L"") +
                   L"'\r\n";
     } else if (jobKeepEmbeddedSubtitles) {
         script += L"Write-Host 'Subtitles: preserve embedded tracks where supported'\r\n";
@@ -5456,6 +5294,7 @@ bool StartCutterConvert() {
             : (subtitleBurn ? jobSubtitleTimingPath : L"");
     const std::wstring vf =
         CutterVideoFilter(burnSubtitlePath);
+
     const std::wstring afVideo =
         useManagedAudio ? L"" : CutterAudioFilterForOffset(jobAudioOffsetMs, true);
     const std::wstring afAudioOnly =
@@ -5509,6 +5348,20 @@ bool StartCutterConvert() {
             }
         } else {
             script += L"$a = $common + $overwriteArgs + @('-map','0','-c','copy')\r\n";
+        }
+        if (copyVideoReencodeAudio) {
+            if (useManagedAudio && managedAudioHasOffset) {
+                script += L"$a += $audioVideoFilterArgs + @('-shortest')\r\n";
+            } else if (!afVideo.empty()) {
+                script += L"$a += @('-af'," + PowerShellQuote(afVideo) + L",'-shortest')\r\n";
+            }
+
+            const std::wstring copyAudioExtension = CutterOutputExtension();
+            const bool copyAudioNeedsOpus =
+                _wcsicmp(copyAudioExtension.c_str(), L"webm") == 0;
+            script += copyAudioNeedsOpus
+                ? L"$a += @('-c:a','libopus','-b:a','" + std::to_wstring(jobAudioKbps) + L"k')\r\n"
+                : L"$a += @('-c:a','aac','-b:a','" + std::to_wstring(jobAudioKbps) + L"k')\r\n";
         }
         if (g_cutMode == CutterOutputMode::Mp4Copy) {
             script += L"$a += @('-movflags','+faststart')\r\n";
@@ -5660,7 +5513,7 @@ bool StartCutterConvert() {
         MessageBoxW(g_main, L"Could not write the temporary PowerShell worker script.",
                     kAppTitle, MB_OK | MB_ICONERROR);
 
-        CleanupCutterSyncedSubtitleTemps();
+        CleanupCutterRebasedSubtitleTemps();
         return false;
     }
 
@@ -5682,7 +5535,7 @@ bool StartCutterConvert() {
     if (!job) {
         MessageBoxW(g_main, L"Could not create the conversion job object.", kAppTitle, MB_OK | MB_ICONERROR);
 
-        CleanupCutterSyncedSubtitleTemps();
+        CleanupCutterRebasedSubtitleTemps();
         return false;
     }
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION jobInfo{};
@@ -5698,7 +5551,7 @@ bool StartCutterConvert() {
         MessageBoxW(g_main, (L"Could not start PowerShell. Windows error " +
                     std::to_wstring(GetLastError())).c_str(), kAppTitle, MB_OK | MB_ICONERROR);
 
-        CleanupCutterSyncedSubtitleTemps();
+        CleanupCutterRebasedSubtitleTemps();
         return false;
     }
     if (!AssignProcessToJobObject(job, pi.hProcess)) {
@@ -5709,7 +5562,7 @@ bool StartCutterConvert() {
         MessageBoxW(g_main, L"Could not attach the conversion worker to its kill-safe job.",
                     kAppTitle, MB_OK | MB_ICONERROR);
 
-        CleanupCutterSyncedSubtitleTemps();
+        CleanupCutterRebasedSubtitleTemps();
         return false;
     }
 
@@ -6049,18 +5902,6 @@ bool CutterSelectManagedAudioSyncTrack(int trackIndex) {
 }
 
 
-bool CutterManagedSubtitleDriftReady(
-    const CutterManagedSubtitleTrack& track) {
-    if (!track.syncASet || !track.syncBSet) {
-        return false;
-    }
-
-    return CutterSubtitleDriftGeometryValid(
-        track.syncAVideoSeconds,
-        track.syncAOffsetMs,
-        track.syncBVideoSeconds,
-        track.syncBOffsetMs);
-}
 
 std::wstring CutterManagedSubtitleDetails(const std::wstring& language,
                                           const std::wstring& title) {
@@ -6076,7 +5917,9 @@ void ResetCutterManagedSubtitleTracksForSource(bool preserveExternal) {
         externalTracks.reserve(g_cutSubtitleTracks.size());
         for (const auto& track : g_cutSubtitleTracks) {
             if (!track.embedded && !track.sourceBound) {
-                externalTracks.push_back(track);
+                auto preserved = track;
+                preserved.offsetMs = 0;
+                externalTracks.push_back(std::move(preserved));
             }
         }
     }
@@ -6084,9 +5927,10 @@ void ResetCutterManagedSubtitleTracksForSource(bool preserveExternal) {
     g_cutManagedSubtitleSourcePath = CutterPrimaryInputPath();
     g_cutSubtitleTracksInitialized = false;
     g_cutSubtitleTracks = std::move(externalTracks);
-    g_cutSubtitleSyncTrackIndex = -1;
-    g_cutSubtitleProbeError.clear();
+    g_cutSubsyncTrackIndex = -1;
+    if (g_cutSubsyncOffsetEdit) SetWindowTextW(g_cutSubsyncOffsetEdit, L"0");
     if (g_cutSubtitles) InvalidateRect(g_cutSubtitles, nullptr, FALSE);
+    if (g_cutSubSyncButton) InvalidateRect(g_cutSubSyncButton, nullptr, FALSE);
 }
 
 void EnsureCutterManagedSubtitleSource() {
@@ -6121,22 +5965,16 @@ void EnsureCutterSubtitleTracksInitialized() {
     }
 
     std::vector<winterstatic::subtitle::SubtitleTrack> probedTracks;
-    g_cutSubtitleProbeError.clear();
     const std::wstring sourcePath = CutterPrimaryInputPath();
     const std::wstring ffprobePath = FindCutterTool(L"ffprobe.exe");
-    if (!sourcePath.empty() && !embeddedMpvTracks.empty()) {
-        if (ffprobePath.empty()) {
-            g_cutSubtitleProbeError = L"ffprobe.exe was not found; embedded subtitle sync is unavailable.";
-        } else {
-            try {
-                winterstatic::subtitle::ToolPaths tools;
-                tools.ffprobe = std::filesystem::path(ffprobePath);
-                probedTracks = winterstatic::subtitle::probe_subtitle_tracks(
-                    std::filesystem::path(sourcePath), tools);
-            } catch (const std::exception& e) {
-                g_cutSubtitleProbeError =
-                    L"Embedded subtitle probe failed: " + Utf8ToWide(e.what());
-            }
+    if (!sourcePath.empty() && !embeddedMpvTracks.empty() && !ffprobePath.empty()) {
+        try {
+            winterstatic::subtitle::ToolPaths tools;
+            tools.ffprobe = std::filesystem::path(ffprobePath);
+            probedTracks = winterstatic::subtitle::probe_subtitle_tracks(
+                std::filesystem::path(sourcePath), tools);
+        } catch (const std::exception&) {
+            // No probe-status consumer remains.
         }
     }
 
@@ -6222,8 +6060,6 @@ void EnsureCutterSubtitleTracksInitialized() {
             probeUsed[static_cast<size_t>(probeMatch)] = true;
             managed.ffmpegStreamIndex = probed.stream_index;
             managed.codec = Utf8ToWide(probed.codec);
-            managed.syncCapable =
-                !winterstatic::subtitle::is_known_bitmap_codec(probed.codec);
         }
 
         // Cutter is primarily a clipper: embedded subtitle tracks start OUT.
@@ -6231,25 +6067,6 @@ void EnsureCutterSubtitleTracksInitialized() {
         managed.included = false;
         managed.mode = CutterSubtitleMode::Soft;
         g_cutSubtitleTracks.push_back(std::move(managed));
-    }
-
-    if (g_cutSubtitleProbeError.empty() && !embeddedMpvTracks.empty()) {
-        const bool anyEmbeddedSyncCapable = std::any_of(
-            g_cutSubtitleTracks.begin(),
-            g_cutSubtitleTracks.end(),
-            [](const CutterManagedSubtitleTrack& candidate) {
-                return candidate.embedded && candidate.syncCapable &&
-                       candidate.ffmpegStreamIndex >= 0 && candidate.mpvTrackId >= 0;
-            });
-        if (!anyEmbeddedSyncCapable) {
-            if (probedTracks.empty()) {
-                g_cutSubtitleProbeError =
-                    L"ffprobe did not return any embedded subtitle streams for this input.";
-            } else {
-                g_cutSubtitleProbeError =
-                    L"Embedded subtitle streams were found, but WinterStatic could not match them to the player tracks.";
-            }
-        }
     }
 
     for (auto& external : externalTracks) {
@@ -6283,244 +6100,249 @@ void EnsureCutterSubtitleTracksInitialized() {
             external.title = g_cutSubtitleTitle;
             external.included = g_cutSubtitlesEnabled;
             external.mode = g_cutSubtitleMode;
-            external.offsetMs = g_cutSubtitleOffsetMs;
-            external.syncASet = g_cutSubtitleSyncASet;
-            external.syncBSet = g_cutSubtitleSyncBSet;
-            external.syncAVideoSeconds = g_cutSubtitleSyncAVideoSeconds;
-            external.syncBVideoSeconds = g_cutSubtitleSyncBVideoSeconds;
-            external.syncAOffsetMs = g_cutSubtitleSyncAOffsetMs;
-            external.syncBOffsetMs = g_cutSubtitleSyncBOffsetMs;
-            external.driftEnabled = g_cutSubtitleDriftEnabled;
             existingIndex = static_cast<int>(g_cutSubtitleTracks.size());
             g_cutSubtitleTracks.push_back(std::move(external));
         }
-        g_cutSubtitleSyncTrackIndex = existingIndex;
+    }
+
+    g_cutSubtitleTracksInitialized = true;
+    g_cutSubsyncTrackIndex = -1;
+    for (size_t i = 0; i < g_cutSubtitleTracks.size(); ++i) {
+        if (g_cutSubtitleTracks[i].included) {
+            g_cutSubsyncTrackIndex = static_cast<int>(i);
+            break;
+        }
+    }
+}
+
+bool CutterSubsyncTextKind(winterstatic::subsync::SubtitleKind kind) {
+    return kind == winterstatic::subsync::SubtitleKind::Srt ||
+           kind == winterstatic::subsync::SubtitleKind::Ass ||
+           kind == winterstatic::subsync::SubtitleKind::Ssa ||
+           kind == winterstatic::subsync::SubtitleKind::WebVtt;
+}
+
+bool CutterSubsyncTrackSupported(const CutterManagedSubtitleTrack& track) {
+    if (track.embedded) {
+        if (track.ffmpegStreamIndex < 0) return false;
+        const std::string codec = WideToUtf8(track.codec);
+        return !winterstatic::subtitle::is_known_bitmap_codec(codec);
+    }
+    if (track.externalPath.empty()) return false;
+    return CutterSubsyncTextKind(
+        winterstatic::subsync::detect_kind(std::filesystem::path(track.externalPath)));
+}
+
+CutterManagedSubtitleTrack* ActiveManagedSubsyncTrack() {
+    if (!g_cutSubtitleTracksInitialized ||
+        g_cutSubsyncTrackIndex < 0 ||
+        g_cutSubsyncTrackIndex >= static_cast<int>(g_cutSubtitleTracks.size())) {
+        return nullptr;
+    }
+    auto& track = g_cutSubtitleTracks[static_cast<size_t>(g_cutSubsyncTrackIndex)];
+    return track.included ? &track : nullptr;
+}
+
+const CutterManagedSubtitleTrack* ActiveManagedSubsyncTrackConst() {
+    if (!g_cutSubtitleTracksInitialized ||
+        g_cutSubsyncTrackIndex < 0 ||
+        g_cutSubsyncTrackIndex >= static_cast<int>(g_cutSubtitleTracks.size())) {
+        return nullptr;
+    }
+    const auto& track = g_cutSubtitleTracks[static_cast<size_t>(g_cutSubsyncTrackIndex)];
+    return track.included ? &track : nullptr;
+}
+
+bool CutterCanEditSubsyncOffset() {
+    const auto* track = ActiveManagedSubsyncTrackConst();
+    return track && CutterSubsyncTrackSupported(*track);
+}
+
+std::wstring ManagedSubsyncLabel(const CutterManagedSubtitleTrack& track) {
+    std::wstring label;
+    if (track.embedded) {
+        label = L"Embedded subtitle " + std::to_wstring(track.streamIndex + 1);
     } else {
-        g_cutSubtitleSyncTrackIndex = -1;
+        label = std::filesystem::path(track.externalPath).filename().wstring();
+        if (label.empty()) label = L"External subtitle";
+    }
+
+    const std::wstring details =
+        CutterManagedSubtitleDetails(track.language, track.title);
+    if (!details.empty()) label += L" | " + details;
+    return label;
+}
+
+bool CutterParseSubsyncOffsetField(std::int64_t& valueMs, bool showError) {
+    valueMs = 0;
+    if (!g_cutSubsyncOffsetEdit) return true;
+
+    wchar_t text[64]{};
+    GetWindowTextW(
+        g_cutSubsyncOffsetEdit, text, static_cast<int>(std::size(text)));
+    std::wstring value(text);
+    value.erase(std::remove_if(value.begin(), value.end(),
+                               [](wchar_t ch) { return iswspace(ch) != 0; }),
+                value.end());
+    if (value.empty()) value = L"0";
+
+    wchar_t* end = nullptr;
+    const long parsed = wcstol(value.c_str(), &end, 10);
+    if (!end || end == value.c_str() || *end != L'\0' ||
+        parsed < -600000L || parsed > 600000L) {
+        if (showError) {
+            MessageBoxW(
+                g_main,
+                L"Subtitle offset must be a whole number from -600000 to 600000 ms.",
+                kAppTitle, MB_OK | MB_ICONWARNING);
+        }
+        return false;
+    }
+
+    valueMs = static_cast<std::int64_t>(parsed);
+    return true;
+}
+
+bool CutterCommitSubsyncOffsetEdit(bool showError) {
+    auto* track = ActiveManagedSubsyncTrack();
+    if (!track || !CutterSubsyncTrackSupported(*track) ||
+        !g_cutSubsyncOffsetEdit) {
+        return true;
+    }
+
+    std::int64_t parsed = track->offsetMs;
+    if (!CutterParseSubsyncOffsetField(parsed, showError)) return false;
+    track->offsetMs = parsed;
+    return true;
+}
+
+void LoadManagedSubsyncToControls() {
+    const auto* track = ActiveManagedSubsyncTrackConst();
+    if (g_cutSubsyncOffsetEdit) {
+        SetWindowTextW(
+            g_cutSubsyncOffsetEdit,
+            std::to_wstring(track ? track->offsetMs : 0).c_str());
+        EnableWindow(
+            g_cutSubsyncOffsetEdit,
+            track && CutterSubsyncTrackSupported(*track) ? TRUE : FALSE);
+    }
+}
+
+void RefreshCutterSubsyncTrackCombo() {
+    if (!g_cutSubsyncTrack) return;
+
+    if (g_cutInputs.size() <= 1 &&
+        (!g_cutInputs.empty() || !g_currentMediaPath.empty())) {
+        EnsureCutterSubtitleTracksInitialized();
+    }
+
+    if (!ActiveManagedSubsyncTrackConst()) {
+        g_cutSubsyncTrackIndex = -1;
         for (size_t i = 0; i < g_cutSubtitleTracks.size(); ++i) {
-            const auto& candidate = g_cutSubtitleTracks[i];
-            const bool syncCapable = candidate.embedded
-                ? (candidate.syncCapable && candidate.ffmpegStreamIndex >= 0 && candidate.mpvTrackId >= 0)
-                : !candidate.externalPath.empty();
-            if (syncCapable) {
-                g_cutSubtitleSyncTrackIndex = static_cast<int>(i);
+            if (g_cutSubtitleTracks[i].included) {
+                g_cutSubsyncTrackIndex = static_cast<int>(i);
                 break;
             }
         }
     }
 
-    g_cutSubtitleTracksInitialized = true;
-}
+    SendMessageW(g_cutSubsyncTrack, WM_SETREDRAW, FALSE, 0);
+    SendMessageW(g_cutSubsyncTrack, CB_RESETCONTENT, 0, 0);
 
-bool CutterManagedSubtitleSyncCapable(
-    const CutterManagedSubtitleTrack& track) {
-    if (!track.embedded) return !track.externalPath.empty();
-    return track.syncCapable && track.ffmpegStreamIndex >= 0 && track.mpvTrackId >= 0;
-}
+    int selectedCombo = -1;
+    for (size_t i = 0; i < g_cutSubtitleTracks.size(); ++i) {
+        const auto& track = g_cutSubtitleTracks[i];
+        if (!track.included) continue;
 
-CutterManagedSubtitleTrack* ActiveManagedSubtitleSyncTrack() {
-    if (!g_cutSubtitleTracksInitialized) return nullptr;
-    if (g_cutSubtitleSyncTrackIndex < 0 ||
-        g_cutSubtitleSyncTrackIndex >= static_cast<int>(g_cutSubtitleTracks.size())) {
-        return nullptr;
-    }
-    auto& track =
-        g_cutSubtitleTracks[static_cast<size_t>(g_cutSubtitleSyncTrackIndex)];
-    if (!CutterManagedSubtitleSyncCapable(track)) return nullptr;
-    return &track;
-}
-
-const CutterManagedSubtitleTrack* ActiveManagedSubtitleSyncTrackConst() {
-    if (!g_cutSubtitleTracksInitialized) return nullptr;
-    if (g_cutSubtitleSyncTrackIndex < 0 ||
-        g_cutSubtitleSyncTrackIndex >= static_cast<int>(g_cutSubtitleTracks.size())) {
-        return nullptr;
-    }
-    const auto& track =
-        g_cutSubtitleTracks[static_cast<size_t>(g_cutSubtitleSyncTrackIndex)];
-    if (!CutterManagedSubtitleSyncCapable(track)) return nullptr;
-    return &track;
-}
-
-void StoreLegacySubtitleSyncToManaged() {
-    auto* track = ActiveManagedSubtitleSyncTrack();
-    if (!track) return;
-    track->offsetMs = g_cutSubtitleOffsetMs;
-    track->syncASet = g_cutSubtitleSyncASet;
-    track->syncBSet = g_cutSubtitleSyncBSet;
-    track->syncAVideoSeconds = g_cutSubtitleSyncAVideoSeconds;
-    track->syncBVideoSeconds = g_cutSubtitleSyncBVideoSeconds;
-    track->syncAOffsetMs = g_cutSubtitleSyncAOffsetMs;
-    track->syncBOffsetMs = g_cutSubtitleSyncBOffsetMs;
-    track->driftEnabled = g_cutSubtitleDriftEnabled;
-}
-
-void LoadManagedSubtitleSyncToLegacy() {
-    const auto* track = ActiveManagedSubtitleSyncTrackConst();
-    if (!track) {
-        g_cutSubtitleOffsetMs = 0;
-        g_cutSubtitleSyncASet = false;
-        g_cutSubtitleSyncBSet = false;
-        g_cutSubtitleSyncAVideoSeconds = 0.0;
-        g_cutSubtitleSyncBVideoSeconds = 0.0;
-        g_cutSubtitleSyncAOffsetMs = 0;
-        g_cutSubtitleSyncBOffsetMs = 0;
-        g_cutSubtitleDriftEnabled = false;
-        g_cutSubtitlesEnabled = false;
-        g_cutSubtitlePath.clear();
-        g_cutSubtitleTitle.clear();
-        return;
-    }
-
-    g_cutSubtitleOffsetMs = track->offsetMs;
-    g_cutSubtitleSyncASet = track->syncASet;
-    g_cutSubtitleSyncBSet = track->syncBSet;
-    g_cutSubtitleSyncAVideoSeconds = track->syncAVideoSeconds;
-    g_cutSubtitleSyncBVideoSeconds = track->syncBVideoSeconds;
-    g_cutSubtitleSyncAOffsetMs = track->syncAOffsetMs;
-    g_cutSubtitleSyncBOffsetMs = track->syncBOffsetMs;
-    g_cutSubtitleDriftEnabled = track->driftEnabled;
-
-    // Keep the old persisted single-external fields aligned only when an
-    // external managed row is active. Embedded sync is session/job state and
-    // must not erase or repurpose the user's persisted external subtitle path.
-    if (!track->embedded) {
-        g_cutSubtitlePath = track->externalPath;
-        g_cutSubtitlesEnabled = track->included;
-        g_cutSubtitleMode = track->mode;
-        g_cutSubtitleTitle = track->title;
-    }
-}
-
-std::wstring ManagedSubtitleSyncLabel(const CutterManagedSubtitleTrack& track) {
-    if (track.embedded) {
-        return L"Embedded " + std::to_wstring(track.streamIndex + 1);
-    }
-    std::wstring name =
-        std::filesystem::path(track.externalPath).filename().wstring();
-    if (name.empty()) name = track.externalPath;
-    return name;
-}
-
-void RefreshCutterSubtitleSyncTrackCombo() {
-    if (!g_cutSubSyncTrack) return;
-
-    if (g_cutSubtitleTracksInitialized) {
-        const auto activeValid = [&]() {
-            if (g_cutSubtitleSyncTrackIndex < 0 ||
-                g_cutSubtitleSyncTrackIndex >= static_cast<int>(g_cutSubtitleTracks.size())) {
-                return false;
+        const std::wstring label = ManagedSubsyncLabel(track);
+        const int combo = static_cast<int>(SendMessageW(
+            g_cutSubsyncTrack, CB_ADDSTRING, 0,
+            reinterpret_cast<LPARAM>(label.c_str())));
+        if (combo >= 0) {
+            SendMessageW(
+                g_cutSubsyncTrack, CB_SETITEMDATA, combo,
+                static_cast<LPARAM>(i));
+            if (static_cast<int>(i) == g_cutSubsyncTrackIndex) {
+                selectedCombo = combo;
             }
-            const auto& track =
-                g_cutSubtitleTracks[static_cast<size_t>(g_cutSubtitleSyncTrackIndex)];
-            return track.included && CutterManagedSubtitleSyncCapable(track);
-        };
+        }
+    }
 
-        if (!activeValid()) {
-            StoreLegacySubtitleSyncToManaged();
-            g_cutSubtitleSyncTrackIndex = -1;
-            for (size_t i = 0; i < g_cutSubtitleTracks.size(); ++i) {
-                const auto& track = g_cutSubtitleTracks[i];
-                if (track.included && CutterManagedSubtitleSyncCapable(track)) {
-                    g_cutSubtitleSyncTrackIndex = static_cast<int>(i);
-                    break;
-                }
-            }
-            LoadManagedSubtitleSyncToLegacy();
+    if (selectedCombo < 0 &&
+        SendMessageW(g_cutSubsyncTrack, CB_GETCOUNT, 0, 0) > 0) {
+        selectedCombo = 0;
+        const LRESULT itemData =
+            SendMessageW(g_cutSubsyncTrack, CB_GETITEMDATA, 0, 0);
+        if (itemData != CB_ERR) {
+            g_cutSubsyncTrackIndex = static_cast<int>(itemData);
         }
     }
 
-    SendMessageW(g_cutSubSyncTrack, WM_SETREDRAW, FALSE, 0);
-    SendMessageW(g_cutSubSyncTrack, CB_RESETCONTENT, 0, 0);
-
-    int selectedComboIndex = -1;
-    int comboIndex = 0;
-
-    if (g_cutSubtitleTracksInitialized) {
-        for (size_t i = 0; i < g_cutSubtitleTracks.size(); ++i) {
-            const auto& track = g_cutSubtitleTracks[i];
-            if (!track.included || !CutterManagedSubtitleSyncCapable(track)) continue;
-
-            std::wstring label = ManagedSubtitleSyncLabel(track);
-            const std::wstring details =
-                CutterManagedSubtitleDetails(track.language, track.title);
-            if (!details.empty()) label += L" | " + details;
-
-            const LRESULT item = SendMessageW(
-                g_cutSubSyncTrack,
-                CB_ADDSTRING,
-                0,
-                reinterpret_cast<LPARAM>(label.c_str()));
-            if (item >= 0) {
-                SendMessageW(
-                    g_cutSubSyncTrack,
-                    CB_SETITEMDATA,
-                    static_cast<WPARAM>(item),
-                    static_cast<LPARAM>(i));
-                if (static_cast<int>(i) == g_cutSubtitleSyncTrackIndex) {
-                    selectedComboIndex = comboIndex;
-                }
-                ++comboIndex;
-            }
-        }
-    } else if (!g_cutSubtitlePath.empty()) {
-        const std::wstring label =
-            std::filesystem::path(g_cutSubtitlePath).filename().wstring();
-        const std::wstring display = label.empty() ? g_cutSubtitlePath : label;
-        const LRESULT item = SendMessageW(
-            g_cutSubSyncTrack,
-            CB_ADDSTRING,
-            0,
-            reinterpret_cast<LPARAM>(display.c_str()));
-        if (item >= 0) {
-            SendMessageW(g_cutSubSyncTrack, CB_SETITEMDATA,
-                         static_cast<WPARAM>(item), static_cast<LPARAM>(-1));
-            selectedComboIndex = 0;
-            comboIndex = 1;
-        }
+    if (selectedCombo >= 0) {
+        SendMessageW(g_cutSubsyncTrack, CB_SETCURSEL, selectedCombo, 0);
     }
 
-    if (selectedComboIndex < 0 && comboIndex > 0) selectedComboIndex = 0;
-    SendMessageW(
-        g_cutSubSyncTrack,
-        CB_SETCURSEL,
-        selectedComboIndex >= 0 ? selectedComboIndex : static_cast<WPARAM>(-1),
-        0);
-    EnableWindow(g_cutSubSyncTrack, comboIndex > 0 ? TRUE : FALSE);
-
-    SendMessageW(g_cutSubSyncTrack, WM_SETREDRAW, TRUE, 0);
-    InvalidateRect(g_cutSubSyncTrack, nullptr, TRUE);
+    SendMessageW(g_cutSubsyncTrack, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(g_cutSubsyncTrack, nullptr, TRUE);
 }
 
-bool CutterSelectManagedSubtitleSyncTrack(int trackIndex) {
-    if (!g_cutSubtitleTracksInitialized ||
-        trackIndex < 0 ||
-        trackIndex >= static_cast<int>(g_cutSubtitleTracks.size())) {
+bool CutterSelectManagedSubsyncTrack(int trackIndex) {
+    if (trackIndex < 0 ||
+        trackIndex >= static_cast<int>(g_cutSubtitleTracks.size()) ||
+        !g_cutSubtitleTracks[static_cast<size_t>(trackIndex)].included) {
         return false;
     }
 
-    const auto& candidate =
-        g_cutSubtitleTracks[static_cast<size_t>(trackIndex)];
-    if (!CutterManagedSubtitleSyncCapable(candidate)) return false;
-
-    StoreLegacySubtitleSyncToManaged();
-    g_cutSubtitleSyncTrackIndex = trackIndex;
-    LoadManagedSubtitleSyncToLegacy();
-    SyncCutterSubtitleContextControls();
-
-    if (CutterHasActiveSubtitleSyncTarget()) {
-        CutterSelectActiveSubtitleForPreview();
-        CutterApplySubtitlePreviewDelay();
-    }
-    SaveSettings();
+    if (!CutterCommitSubsyncOffsetEdit(false)) return false;
+    g_cutSubsyncTrackIndex = trackIndex;
+    LoadManagedSubsyncToControls();
+    SyncCutterSubsyncContextControls();
     return true;
 }
 
-bool CutterHasActiveSubtitleSyncTarget() {
-    if (g_cutSubtitleTracksInitialized) {
-        return ActiveManagedSubtitleSyncTrackConst() != nullptr;
+void AdjustCutterSubsyncOffset(int deltaMs) {
+    auto* track = ActiveManagedSubsyncTrack();
+    if (!track || !CutterSubsyncTrackSupported(*track)) return;
+
+    std::int64_t current = track->offsetMs;
+    CutterParseSubsyncOffsetField(current, false);
+    track->offsetMs = std::clamp<std::int64_t>(
+        current + deltaMs, -600000, 600000);
+    if (g_cutSubsyncOffsetEdit) {
+        SetWindowTextW(
+            g_cutSubsyncOffsetEdit,
+            std::to_wstring(track->offsetMs).c_str());
     }
-    return g_cutSubtitlesEnabled && !g_cutSubtitlePath.empty();
+
+    if (g_cutSubsyncOffsetMinus) InvalidateRect(g_cutSubsyncOffsetMinus, nullptr, FALSE);
+    if (g_cutSubsyncOffsetPlus) InvalidateRect(g_cutSubsyncOffsetPlus, nullptr, FALSE);
+    if (g_cutSubsyncOffsetReset) InvalidateRect(g_cutSubsyncOffsetReset, nullptr, FALSE);
+}
+
+void SyncCutterSubsyncContextControls() {
+    RefreshCutterSubsyncTrackCombo();
+    LoadManagedSubsyncToControls();
+
+    const auto* track = ActiveManagedSubsyncTrackConst();
+    const bool supported = track && CutterSubsyncTrackSupported(*track);
+    if (g_cutSubsyncOffsetEdit) EnableWindow(g_cutSubsyncOffsetEdit, supported ? TRUE : FALSE);
+
+    if (g_cutSubSyncStatus) {
+        std::wstring status;
+        if (!track) {
+            status = L"No included subtitle track selected. Use SUBS OPT first.";
+        } else if (!supported) {
+            status = L"Subtitle sync currently supports text subtitles only (SRT/ASS/SSA/VTT).";
+        } else {
+            status = L"Positive = subtitle later. Applied during conversion; preview unchanged.";
+        }
+        SetWindowTextW(g_cutSubSyncStatus, status.c_str());
+    }
+
+    if (g_cutSubsyncOffsetMinus) InvalidateRect(g_cutSubsyncOffsetMinus, nullptr, FALSE);
+    if (g_cutSubsyncOffsetPlus) InvalidateRect(g_cutSubsyncOffsetPlus, nullptr, FALSE);
+    if (g_cutSubsyncOffsetReset) InvalidateRect(g_cutSubsyncOffsetReset, nullptr, FALSE);
+    if (g_cutSubSyncButton) InvalidateRect(g_cutSubSyncButton, nullptr, FALSE);
 }
 
 bool CutterHasIncludedSubtitleTracks() {
@@ -6555,45 +6377,17 @@ void CutterSelectSubtitleForPreview(const std::wstring& rawPath) {
                 "sid",
                 std::to_string(track.id)
             });
-            CutterApplySubtitlePreviewDelay();
             return;
         }
     }
 
-    if (MpvCommand({
-            "sub-add",
-            WideToUtf8(wanted),
-            "select"
-        })) {
-        CutterApplySubtitlePreviewDelay();
-    }
+    MpvCommand({
+        "sub-add",
+        WideToUtf8(wanted),
+        "select"
+    });
 }
 
-void CutterSelectActiveSubtitleForPreview() {
-    if (!g_mpvReady) return;
-
-    if (g_cutSubtitleTracksInitialized) {
-        const auto* track = ActiveManagedSubtitleSyncTrackConst();
-        if (!track) return;
-
-        if (track->embedded) {
-            if (track->mpvTrackId >= 0) {
-                MpvCommand({
-                    "set",
-                    "sid",
-                    std::to_string(track->mpvTrackId)
-                });
-                CutterApplySubtitlePreviewDelay();
-            }
-            return;
-        }
-
-        CutterSelectSubtitleForPreview(track->externalPath);
-        return;
-    }
-
-    CutterSelectSubtitleForPreview(g_cutSubtitlePath);
-}
 
 std::vector<PlaylistEntry> GetPlaylistEntries() {
     std::vector<PlaylistEntry> entries;
@@ -6859,6 +6653,14 @@ void UpdateVolumeLabel() {
     SetWindowTextW(g_volumeText, text);
 }
 
+void ShowCutterNeedsInputStatus() {
+    g_transientStatusText = L"Open an input file first.";
+    g_transientStatusUntil = GetTickCount64() + 2400;
+    g_statusText = g_transientStatusText;
+    if (g_status) SetWindowTextW(g_status, g_statusText.c_str());
+    if (g_main) LayoutChildren(g_main);
+}
+
 void UpdateStatusText() {
     std::wstring status;
     std::wstring audioText = L"--";
@@ -6907,6 +6709,17 @@ void UpdateStatusText() {
 
         if (haveSubTrack && subText == L"--") {
             subText = L"OFF";
+        }
+    }
+
+    if (!g_transientStatusText.empty()) {
+        const bool inputLoaded =
+            !g_currentMediaPath.empty() || !g_cutInputs.empty();
+        if (!inputLoaded && GetTickCount64() < g_transientStatusUntil) {
+            status = g_transientStatusText;
+        } else {
+            g_transientStatusText.clear();
+            g_transientStatusUntil = 0;
         }
     }
 
@@ -7285,11 +7098,9 @@ void PollMpv() {
 
         ApplyRememberedTrackSelections();
         RefreshChapterMarkers();
-        if (CutterHasActiveSubtitleSyncTarget()) {
+        if (g_cutSubtitlesEnabled && !g_cutSubtitlePath.empty()) {
             CutterSelectSubtitleForPreview(
                 g_cutSubtitlePath);
-        } else {
-            CutterApplySubtitlePreviewDelay();
         }
 
         const bool skipResumeForThisLoad =
@@ -7343,20 +7154,6 @@ void PollMpv() {
 
     g_timePos = std::max(0.0, MpvGetDouble("time-pos", 0.0));
     g_duration = std::max(0.0, MpvGetDouble("duration", 0.0));
-    if (g_cutSubtitleDriftEnabled &&
-        CutterHasActiveSubtitleSyncTarget() &&
-        CutterSubtitleDriftReady()) {
-        const int delayMs =
-            CutterSubtitlePreviewDelayMsAt(g_timePos);
-        const double delaySeconds =
-            static_cast<double>(delayMs) / 1000.0;
-        const double currentDelay =
-            MpvGetDouble("sub-delay", 0.0);
-        if (std::abs(currentDelay - delaySeconds) > 0.002) {
-            MpvSetDouble("sub-delay", delaySeconds);
-            g_subtitleDelayTouched = delayMs != 0;
-        }
-    }
     if (g_cutMarkBAutoEnd && g_cutMarkA >= 0.0 && g_duration > g_cutMarkA) {
         g_cutMarkB = g_duration;
     }
@@ -7741,10 +7538,12 @@ std::wstring FindNextMediaFileInFolder(const std::wstring& currentPath) {
 void LoadPlaylist(const std::vector<std::wstring>& paths) {
     if (!g_mpvReady || paths.empty()) return;
 
+    g_transientStatusText.clear();
+    g_transientStatusUntil = 0;
+
     // User-managed external subtitle rows can be prepared before a video is
     // loaded. Preserve them across source replacement; embedded rows and
     // auto-paired sidecars are rebuilt for the new primary input.
-    StoreLegacySubtitleSyncToManaged();
 
     g_cutInputs.clear();
     for (const auto& rawPath : paths) {
@@ -8146,24 +7945,106 @@ bool ProbeCurrentVideoKeyframes(const std::wstring& rawPath,
     std::string output;
     output.reserve(64 * 1024);
     char buffer[4096]{};
-    DWORD read = 0;
     constexpr size_t kMaxKeyframeProbeOutput = 8 * 1024 * 1024;
-    while (ReadFile(readPipe, buffer, sizeof(buffer), &read, nullptr) && read > 0) {
-        if (output.size() + read > kMaxKeyframeProbeOutput) {
-            output.append(buffer, buffer +
-                (kMaxKeyframeProbeOutput - output.size()));
+    constexpr ULONGLONG kKeyframeProbeTimeoutMs = 5000;
+    const ULONGLONG probeStartedAt = GetTickCount64();
+    bool probeTimedOut = false;
+    bool probeOutputTooLarge = false;
+    bool probePipeFailed = false;
+
+    auto drainProbeOutput = [&]() {
+        while (!probeOutputTooLarge && !probePipeFailed) {
+            DWORD available = 0;
+            if (!PeekNamedPipe(
+                    readPipe, nullptr, 0, nullptr, &available, nullptr)) {
+                const DWORD pipeError = GetLastError();
+                if (pipeError != ERROR_BROKEN_PIPE) {
+                    probePipeFailed = true;
+                }
+                return;
+            }
+            if (available == 0) return;
+
+            const DWORD toRead =
+                std::min<DWORD>(available, static_cast<DWORD>(sizeof(buffer)));
+            DWORD bytesRead = 0;
+            if (!ReadFile(
+                    readPipe, buffer, toRead, &bytesRead, nullptr)) {
+                const DWORD pipeError = GetLastError();
+                if (pipeError != ERROR_BROKEN_PIPE) {
+                    probePipeFailed = true;
+                }
+                return;
+            }
+            if (bytesRead == 0) return;
+
+            if (output.size() + bytesRead > kMaxKeyframeProbeOutput) {
+                probeOutputTooLarge = true;
+                return;
+            }
+            output.append(buffer, buffer + bytesRead);
+        }
+    };
+
+    for (;;) {
+        drainProbeOutput();
+        if (probeOutputTooLarge || probePipeFailed) break;
+
+        const DWORD waitResult = WaitForSingleObject(pi.hProcess, 0);
+        if (waitResult == WAIT_OBJECT_0) {
+            // The child has exited. Drain anything it wrote immediately before
+            // closing its side of the pipe, then finish normally.
+            drainProbeOutput();
             break;
         }
-        output.append(buffer, buffer + read);
+        if (waitResult == WAIT_FAILED) {
+            probePipeFailed = true;
+            break;
+        }
+
+        if (GetTickCount64() - probeStartedAt >= kKeyframeProbeTimeoutMs) {
+            probeTimedOut = true;
+            break;
+        }
+
+        // The old code blocked in ReadFile() on the UI thread until ffprobe
+        // finished, so the nominal 5-second timeout below it could never
+        // protect the window from a slow scan. Keep the same synchronous
+        // STICK KF behaviour, but let Windows repaint while the bounded probe
+        // runs instead of making the application look hung.
+        MSG paintMessage{};
+        while (PeekMessageW(
+                   &paintMessage, nullptr, WM_PAINT, WM_PAINT, PM_REMOVE)) {
+            TranslateMessage(&paintMessage);
+            DispatchMessageW(&paintMessage);
+        }
+        Sleep(10);
     }
+
+    if (probeTimedOut || probeOutputTooLarge || probePipeFailed) {
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, 1000);
+    }
+
     CloseHandle(readPipe);
 
-    WaitForSingleObject(pi.hProcess, 5000);
     DWORD exitCode = 1;
     GetExitCodeProcess(pi.hProcess, &exitCode);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
 
+    if (probeTimedOut) {
+        errorText = L"Keyframe scan timed out.";
+        return false;
+    }
+    if (probeOutputTooLarge) {
+        errorText = L"Keyframe scan returned too much data.";
+        return false;
+    }
+    if (probePipeFailed) {
+        errorText = L"Could not read ffprobe keyframe output.";
+        return false;
+    }
     if (exitCode != 0) {
         errorText = L"ffprobe could not read video keyframes.";
         return false;
@@ -8242,16 +8123,33 @@ bool SeekAdjacentKeyframe(bool next) {
     if (frames.empty()) return false;
 
     // Prefer the exact indexed position Cutter selected on the previous
-    // adjacent-keyframe command. If another navigation path invalidated that
-    // state, retain the 2 ms timestamp matcher as the fallback.
+    // adjacent-keyframe command. While paused it remains authoritative. During
+    // playback, keep it only while playback is still very close to that seek
+    // destination; this prevents Back from immediately re-selecting the same
+    // keyframe after playback advances a few milliseconds.
     constexpr double kKeyframeMatchTolerance = 0.002;
+    constexpr double kPlayingKeyframeNavGrace = 0.750;
     auto lower = std::lower_bound(frames.begin(), frames.end(), current);
     std::ptrdiff_t currentIndex = -1;
     const bool paused = MpvGetFlag("pause", false);
 
-    if (paused &&
+    const bool navIndexValid =
         g_keyframeNavIndex >= 0 &&
-        g_keyframeNavIndex < static_cast<std::ptrdiff_t>(frames.size())) {
+        g_keyframeNavIndex < static_cast<std::ptrdiff_t>(frames.size());
+    bool useRememberedIndex = paused && navIndexValid;
+    if (!paused && navIndexValid) {
+        const double anchor = frames[static_cast<size_t>(g_keyframeNavIndex)];
+        const bool stillNearAnchor =
+            current >= anchor - kKeyframeMatchTolerance &&
+            current <= anchor + kPlayingKeyframeNavGrace;
+        const bool hasCrossedNextKeyframe =
+            g_keyframeNavIndex + 1 < static_cast<std::ptrdiff_t>(frames.size()) &&
+            current >= frames[static_cast<size_t>(g_keyframeNavIndex + 1)] -
+                           kKeyframeMatchTolerance;
+        useRememberedIndex = stillNearAnchor && !hasCrossedNextKeyframe;
+    }
+
+    if (useRememberedIndex) {
         currentIndex = g_keyframeNavIndex;
     } else {
         if (!paused) {
@@ -8304,7 +8202,10 @@ bool SeekAdjacentKeyframe(bool next) {
     if (!MpvCommand({"osd-msg", "seek", amount, "absolute+exact"})) {
         return false;
     }
-    g_keyframeNavIndex = paused ? targetIndex : -1;
+    // Remember the exact destination even during playback. The next adjacent
+    // keyframe command may reuse it only while playback is still close to this
+    // keyframe; otherwise the normal current-time lookup takes over.
+    g_keyframeNavIndex = targetIndex;
     g_timePos = target;
     g_pollCounter = 3;
 
@@ -9082,17 +8983,13 @@ void SyncCutterContextVisibility() {
     ShowCutterWindow(g_cutSubTitleEdit, false);
     ShowCutterWindow(g_cutSubKeepEmbedded, false);
 
-    ShowCutterWindow(g_cutSubSyncTrackLabel, subtitleSync);
-    ShowCutterWindow(g_cutSubSyncTrack, subtitleSync);
-    ShowCutterWindow(g_cutSubOffsetLabel, subtitleSync);
-    ShowCutterWindow(g_cutSubOffsetMinus, subtitleSync);
-    ShowCutterWindow(g_cutSubOffsetEdit, subtitleSync);
-    ShowCutterWindow(g_cutSubOffsetPlus, subtitleSync);
-    ShowCutterWindow(g_cutSubOffsetReset, subtitleSync);
-    ShowCutterWindow(g_cutSubSyncA, subtitleSync);
-    ShowCutterWindow(g_cutSubSyncB, subtitleSync);
-    ShowCutterWindow(g_cutSubDrift, subtitleSync);
-    ShowCutterWindow(g_cutSubSyncClear, subtitleSync);
+    ShowCutterWindow(g_cutSubsyncTrackLabel, subtitleSync);
+    ShowCutterWindow(g_cutSubsyncTrack, subtitleSync);
+    ShowCutterWindow(g_cutSubsyncOffsetLabel, subtitleSync);
+    ShowCutterWindow(g_cutSubsyncOffsetMinus, subtitleSync);
+    ShowCutterWindow(g_cutSubsyncOffsetEdit, subtitleSync);
+    ShowCutterWindow(g_cutSubsyncOffsetPlus, subtitleSync);
+    ShowCutterWindow(g_cutSubsyncOffsetReset, subtitleSync);
     ShowCutterWindow(g_cutSubSyncStatus, subtitleSync);
 
     ShowCutterWindow(g_cutAudioSyncTrackLabel, audioSync);
@@ -9132,8 +9029,6 @@ void SyncCutterAudioContextControls() {
 
 void SyncCutterSubtitleContextControls() {
 
-    RefreshCutterSubtitleSyncTrackCombo();
-
     if (g_cutSubPathEdit) {
         SetWindowTextW(g_cutSubPathEdit, g_cutSubtitlePath.c_str());
     }
@@ -9142,59 +9037,14 @@ void SyncCutterSubtitleContextControls() {
         EnableWindow(g_cutSubTitleEdit,
                      g_cutSubtitleMode == CutterSubtitleMode::Soft ? TRUE : FALSE);
     }
-    if (g_cutSubOffsetEdit) {
-        SetWindowTextW(
-            g_cutSubOffsetEdit,
-            std::to_wstring(g_cutSubtitleOffsetMs).c_str());
-        EnableWindow(
-            g_cutSubOffsetEdit,
-            CutterHasActiveSubtitleSyncTarget() ? TRUE : FALSE);
-    }
-    // Keep owner-drawn timing buttons as enabled HWNDs even when their
-    // actions are not currently available. Disabling this custom window class
-    // made the controls paint as blank areas on Windows. ButtonProc applies the
-    // logical enabled state instead, so unavailable controls remain visible and
-    // dimmed without accepting clicks.
-    if (g_cutSubSyncStatus) {
-        std::wstring status;
-        if (!CutterHasActiveSubtitleSyncTarget()) {
-            status = !g_cutSubtitleProbeError.empty()
-                ? g_cutSubtitleProbeError
-                : L"No sync-capable subtitle selected. Use SUBS OPT first.";
-        } else if (g_cutSubtitleSyncASet &&
-                   g_cutSubtitleSyncBSet &&
-                   !CutterSubtitleDriftReady()) {
-            status =
-                L"Invalid drift points: subtitle/source time would not move forward.";
-        } else {
-            status =
-                L"A " +
-                CutterSyncPointText(
-                    g_cutSubtitleSyncASet,
-                    g_cutSubtitleSyncAVideoSeconds,
-                    g_cutSubtitleSyncAOffsetMs) +
-                L"   B " +
-                CutterSyncPointText(
-                    g_cutSubtitleSyncBSet,
-                    g_cutSubtitleSyncBVideoSeconds,
-                    g_cutSubtitleSyncBOffsetMs);
-        }
-        SetWindowTextW(
-            g_cutSubSyncStatus,
-            status.c_str());
+    if (g_cutSubtitleSyncOpen) {
+        SyncCutterSubsyncContextControls();
     }
 
     if (g_cutSubEnable) InvalidateRect(g_cutSubEnable, nullptr, FALSE);
     if (g_cutSubSoft) InvalidateRect(g_cutSubSoft, nullptr, FALSE);
     if (g_cutSubBurn) InvalidateRect(g_cutSubBurn, nullptr, FALSE);
     if (g_cutSubKeepEmbedded) InvalidateRect(g_cutSubKeepEmbedded, nullptr, FALSE);
-    if (g_cutSubOffsetMinus) InvalidateRect(g_cutSubOffsetMinus, nullptr, FALSE);
-    if (g_cutSubOffsetPlus) InvalidateRect(g_cutSubOffsetPlus, nullptr, FALSE);
-    if (g_cutSubOffsetReset) InvalidateRect(g_cutSubOffsetReset, nullptr, FALSE);
-    if (g_cutSubSyncA) InvalidateRect(g_cutSubSyncA, nullptr, FALSE);
-    if (g_cutSubSyncB) InvalidateRect(g_cutSubSyncB, nullptr, FALSE);
-    if (g_cutSubDrift) InvalidateRect(g_cutSubDrift, nullptr, FALSE);
-    if (g_cutSubSyncClear) InvalidateRect(g_cutSubSyncClear, nullptr, FALSE);
     if (g_cutSubtitles) InvalidateRect(g_cutSubtitles, nullptr, FALSE);
     if (g_cutSubSyncButton) InvalidateRect(g_cutSubSyncButton, nullptr, FALSE);
 }
@@ -9231,10 +9081,15 @@ void SetCutterAudioSyncOpen(bool open) {
 void SetCutterSubtitleSyncOpen(bool open) {
     if (g_cutSubtitleSyncOpen == open) return;
 
+    if (!open) {
+        CutterCommitSubsyncOffsetEdit(false);
+    }
+
     g_cutSubtitleSyncOpen = open;
 
     if (open) {
-        SyncCutterSubtitleContextControls();
+        EnsureCutterSubtitleTracksInitialized();
+        SyncCutterSubsyncContextControls();
         // Position hidden controls before revealing the new row.
         if (g_main) LayoutChildren(g_main);
         SyncCutterContextVisibility();
@@ -9284,8 +9139,6 @@ void LayoutAudioContextBar(int y, int panelWidth) {
 void LayoutSubtitleContextBar(int y, int panelWidth) {
     if (!g_cutSubtitleSyncOpen) return;
 
-    // Live subtitle timing only. File selection, Soft/Burn, title and embedded
-    // track options remain in the SUBS OPT dialog.
     const int h = 24;
     int x = 6;
     auto place = [&](HWND hwnd, int width, int gapAfter = 4) {
@@ -9293,28 +9146,24 @@ void LayoutSubtitleContextBar(int y, int panelWidth) {
         x += width + gapAfter;
     };
 
-    MoveWindow(g_cutSubSyncTrackLabel, x, y + 3, 28, 18, TRUE);
-    x += 30;
-    MoveWindow(g_cutSubSyncTrack, x, y, 210, 180, TRUE);
-    x += 216;
+    MoveWindow(g_cutSubsyncTrackLabel, x, y + 3, 30, 18, TRUE);
+    x += 32;
+    MoveWindow(g_cutSubsyncTrack, x, y, 270, 180, TRUE);
+    x += 276;
 
-    MoveWindow(g_cutSubOffsetLabel, x, y + 3, 70, 18, TRUE);
+    MoveWindow(g_cutSubsyncOffsetLabel, x, y + 3, 70, 18, TRUE);
     x += 72;
-    MoveWindow(g_cutSubOffsetEdit, x, y + 1, 68, 22, TRUE);
+    place(g_cutSubsyncOffsetMinus, 36, 2);
+    MoveWindow(g_cutSubsyncOffsetEdit, x, y + 1, 68, 22, TRUE);
     x += 70;
-    place(g_cutSubOffsetMinus, 28, 2);
-    place(g_cutSubOffsetPlus, 28, 6);
-    place(g_cutSubOffsetReset, 54, 12);
-    place(g_cutSubSyncA, 64, 4);
-    place(g_cutSubSyncB, 64, 8);
-    place(g_cutSubDrift, 64, 4);
-    place(g_cutSubSyncClear, 72, 12);
+    place(g_cutSubsyncOffsetPlus, 36, 6);
+    place(g_cutSubsyncOffsetReset, 54, 12);
 
     MoveWindow(
         g_cutSubSyncStatus,
         x,
         y + 3,
-        std::max(120, panelWidth - x - 6),
+        std::max(160, panelWidth - x - 6),
         18,
         TRUE);
 }
@@ -9432,7 +9281,7 @@ void LayoutChildren(HWND hwnd) {
     const int middleRight = right - 10;
     const int middleAvailable = std::max(0, middleRight - middleLeft);
 
-    auto textWidth = [&](HWND label, const std::wstring& text, int fallback) {
+    auto textWidth = [&](const std::wstring& text, int fallback) {
         int width = fallback;
         HDC dc = GetDC(g_panel);
         if (dc) {
@@ -9448,9 +9297,9 @@ void LayoutChildren(HWND hwnd) {
         return width;
     };
 
-    int statusW = textWidth(g_status, g_statusText, 90);
-    int audioInfoW = textWidth(g_audioInfo, g_audioInfoText, 56);
-    int subInfoW = textWidth(g_subInfo, g_subInfoText, 56);
+    int statusW = textWidth(g_statusText, 90);
+    int audioInfoW = textWidth(g_audioInfoText, 56);
+    int subInfoW = textWidth(g_subInfoText, 56);
 
     constexpr int trackButtonW = 38;
     constexpr int gap = 4;
@@ -9501,8 +9350,8 @@ void LayoutChildren(HWND hwnd) {
         MoveWindow(g_audioInfo, middleX, y + 4, audioInfoW, 18, TRUE);
     }
 
-    // Audio and subtitle sync are independent working rows. When both are
-    // open, stack them rather than making them compete for one context slot.
+    // Audio sync and the subtitle-sync placeholder use independent rows.
+    // When both are open, stack them rather than sharing one context slot.
     int contextY = 56;
     if (g_cutAudioSyncOpen) {
         LayoutAudioContextBar(contextY, pw);
@@ -9512,7 +9361,6 @@ void LayoutChildren(HWND hwnd) {
         LayoutSubtitleContextBar(contextY, pw);
         contextY += kCutterContextBarHeight;
     }
-
     // Cutter row: keep the workflow in one left-to-right strip. The destructive
     // controls remain together at the end in CLEAR -> NUKE -> CONVERT order.
     const int cutterY = contextY;
@@ -10344,18 +10192,10 @@ bool CutterButtonLogicallyEnabled(int id) {
     case IDC_CUT_AUDIO_OFFSET_PLUS:
     case IDC_AUDIO_SYNC_OFFSET_RESET:
         return CutterHasActiveAudioSyncTarget();
-    case IDC_SUB_OFFSET_MINUS:
-    case IDC_SUB_OFFSET_PLUS:
-    case IDC_SUB_OFFSET_RESET:
-    case IDC_SUB_SYNC_A:
-    case IDC_SUB_SYNC_B:
-        return CutterHasActiveSubtitleSyncTarget();
-    case IDC_SUB_DRIFT:
-        return CutterHasActiveSubtitleSyncTarget() &&
-               CutterSubtitleDriftReady();
-    case IDC_SUB_SYNC_CLEAR:
-        return CutterHasActiveSubtitleSyncTarget() &&
-               (g_cutSubtitleSyncASet || g_cutSubtitleSyncBSet);
+    case IDC_CUT_SUBSYNC_OFFSET_MINUS:
+    case IDC_CUT_SUBSYNC_OFFSET_PLUS:
+    case IDC_CUT_SUBSYNC_OFFSET_RESET:
+        return CutterCanEditSubsyncOffset();
     default:
         return true;
     }
@@ -10509,6 +10349,9 @@ void DrawButtonGlyph(HWND hwnd, HDC dc, int id, const RECT& r, bool logicalEnabl
     else if (id == IDC_CUT_AUDIO_OFFSET_MINUS) text = L"-";
     else if (id == IDC_CUT_AUDIO_OFFSET_PLUS) text = L"+";
     else if (id == IDC_AUDIO_SYNC_OFFSET_RESET) text = L"RESET";
+    else if (id == IDC_CUT_SUBSYNC_OFFSET_MINUS) text = L"-50";
+    else if (id == IDC_CUT_SUBSYNC_OFFSET_PLUS) text = L"+50";
+    else if (id == IDC_CUT_SUBSYNC_OFFSET_RESET) text = L"RESET";
     else if (id == IDC_CUT_STICK_KEYFRAMES) text = L"STICK KF";
     else if (id == IDC_CUT_TWO_PASS) text = L"2 PASS";
     else if (id == IDC_CUT_SUBTITLES) text = CutterHasIncludedSubtitleTracks() ? L"SUBS OPT*" : L"SUBS OPT";
@@ -10519,13 +10362,6 @@ void DrawButtonGlyph(HWND hwnd, HDC dc, int id, const RECT& r, bool logicalEnabl
     else if (id == IDC_SUB_SOFT) text = L"SOFT";
     else if (id == IDC_SUB_BURN) text = L"BURN";
     else if (id == IDC_SUB_KEEP_EMBEDDED) text = g_cutKeepEmbeddedSubtitles ? L"KEEP EMB*" : L"KEEP EMB";
-    else if (id == IDC_SUB_OFFSET_MINUS) text = L"-";
-    else if (id == IDC_SUB_OFFSET_PLUS) text = L"+";
-    else if (id == IDC_SUB_OFFSET_RESET) text = L"RESET";
-    else if (id == IDC_SUB_SYNC_A) text = L"SYNC A";
-    else if (id == IDC_SUB_SYNC_B) text = L"SYNC B";
-    else if (id == IDC_SUB_DRIFT) text = g_cutSubtitleDriftEnabled ? L"DRIFT*" : L"DRIFT";
-    else if (id == IDC_SUB_SYNC_CLEAR) text = L"CLR SYNC";
     else if (id == IDC_CUT_OPTIONS) text = (g_cutOverwriteEnabled || !g_cutShowPowerShell || !g_cutClosePowerShellWhenDone) ? L"OPTIONS*" : L"OPTIONS";
     else if (id == IDC_CUT_OUTPUT) text = L"OUTPUT";
     else if (id == IDC_CUT_CLEAR) text = L"CLEAR";
@@ -10580,10 +10416,10 @@ LRESULT CALLBACK ButtonProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                    CutterHasIncludedSubtitleTracks()) {
             background = RGB(0, 52, 54);
             hoverBorder = C_TEAL;
-        } else if (id == IDC_CUT_SUB_SYNC && g_cutSubtitleSyncOpen) {
+        } else if (id == IDC_CUT_AUDIO_SYNC && g_cutAudioSyncOpen) {
             background = RGB(0, 70, 72);
             hoverBorder = C_TEAL;
-        } else if (id == IDC_CUT_AUDIO_SYNC && g_cutAudioSyncOpen) {
+        } else if (id == IDC_CUT_SUB_SYNC && g_cutSubtitleSyncOpen) {
             background = RGB(0, 70, 72);
             hoverBorder = C_TEAL;
         } else if (id == IDC_SUB_ENABLE && g_cutSubtitlesEnabled) {
@@ -10598,15 +10434,6 @@ LRESULT CALLBACK ButtonProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             background = RGB(0, 70, 72);
             hoverBorder = C_TEAL;
         } else if (id == IDC_SUB_KEEP_EMBEDDED && g_cutKeepEmbeddedSubtitles) {
-            background = RGB(0, 70, 72);
-            hoverBorder = C_TEAL;
-        } else if (id == IDC_SUB_SYNC_A && g_cutSubtitleSyncASet) {
-            background = RGB(0, 70, 72);
-            hoverBorder = C_TEAL;
-        } else if (id == IDC_SUB_SYNC_B && g_cutSubtitleSyncBSet) {
-            background = RGB(0, 70, 72);
-            hoverBorder = C_TEAL;
-        } else if (id == IDC_SUB_DRIFT && g_cutSubtitleDriftEnabled) {
             background = RGB(0, 70, 72);
             hoverBorder = C_TEAL;
         } else if (id == IDC_CUT_STICK_KEYFRAMES && g_cutStickKeyframes) {
@@ -10982,7 +10809,7 @@ LRESULT CALLBACK PanelProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         measure->CtlID == IDC_CUT_RESOLUTION ||
                         measure->CtlID == IDC_CUT_AUDIO_MODE ||
                         measure->CtlID == IDC_AUDIO_SYNC_TRACK ||
-                        measure->CtlID == IDC_SUB_SYNC_TRACK)) {
+                        measure->CtlID == IDC_CUT_SUBSYNC_TRACK)) {
             measure->itemHeight = 20;
             return TRUE;
         }
@@ -10994,7 +10821,7 @@ LRESULT CALLBACK PanelProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                      draw->CtlID == IDC_CUT_RESOLUTION ||
                      draw->CtlID == IDC_CUT_AUDIO_MODE ||
                      draw->CtlID == IDC_AUDIO_SYNC_TRACK ||
-                     draw->CtlID == IDC_SUB_SYNC_TRACK)) {
+                     draw->CtlID == IDC_CUT_SUBSYNC_TRACK)) {
             const bool selected = (draw->itemState & ODS_SELECTED) != 0;
             const bool disabled = (draw->itemState & ODS_DISABLED) != 0;
             const COLORREF background = selected ? RGB(52, 52, 52) : RGB(28, 28, 28);
@@ -11375,6 +11202,9 @@ void CreateUi(HWND hwnd) {
     g_cutAudioOffsetMinus = CreateButton(g_panel, IDC_CUT_AUDIO_OFFSET_MINUS);
     g_cutAudioOffsetPlus = CreateButton(g_panel, IDC_CUT_AUDIO_OFFSET_PLUS);
     g_cutAudioOffsetReset = CreateButton(g_panel, IDC_AUDIO_SYNC_OFFSET_RESET);
+    g_cutSubsyncOffsetMinus = CreateButton(g_panel, IDC_CUT_SUBSYNC_OFFSET_MINUS);
+    g_cutSubsyncOffsetPlus = CreateButton(g_panel, IDC_CUT_SUBSYNC_OFFSET_PLUS);
+    g_cutSubsyncOffsetReset = CreateButton(g_panel, IDC_CUT_SUBSYNC_OFFSET_RESET);
     g_cutOptions = CreateButton(g_panel, IDC_CUT_OPTIONS);
     g_cutOutput = CreateButton(g_panel, IDC_CUT_OUTPUT);
     g_cutClear = CreateButton(g_panel, IDC_CUT_CLEAR);
@@ -11389,13 +11219,6 @@ void CreateUi(HWND hwnd) {
     g_cutSubSoft = CreateButton(g_panel, IDC_SUB_SOFT);
     g_cutSubBurn = CreateButton(g_panel, IDC_SUB_BURN);
     g_cutSubKeepEmbedded = CreateButton(g_panel, IDC_SUB_KEEP_EMBEDDED);
-    g_cutSubOffsetMinus = CreateButton(g_panel, IDC_SUB_OFFSET_MINUS);
-    g_cutSubOffsetPlus = CreateButton(g_panel, IDC_SUB_OFFSET_PLUS);
-    g_cutSubOffsetReset = CreateButton(g_panel, IDC_SUB_OFFSET_RESET);
-    g_cutSubSyncA = CreateButton(g_panel, IDC_SUB_SYNC_A);
-    g_cutSubSyncB = CreateButton(g_panel, IDC_SUB_SYNC_B);
-    g_cutSubDrift = CreateButton(g_panel, IDC_SUB_DRIFT);
-    g_cutSubSyncClear = CreateButton(g_panel, IDC_SUB_SYNC_CLEAR);
 
     g_cutSubPathLabel = CreateWindowExW(0, L"STATIC", L"File",
         WS_CHILD | SS_LEFTNOWORDWRAP,
@@ -11429,28 +11252,33 @@ void CreateUi(HWND hwnd) {
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_AUDIO_SYNC_STATUS)),
         g_instance, nullptr);
 
-    g_cutSubSyncTrackLabel = CreateWindowExW(0, L"STATIC", L"SUB",
+    g_cutSubsyncTrackLabel = CreateWindowExW(0, L"STATIC", L"SUB",
         WS_CHILD | SS_LEFTNOWORDWRAP,
-        0, 0, 28, 18, g_panel, nullptr, g_instance, nullptr);
-    g_cutSubSyncTrack = CreateWindowExW(0, L"COMBOBOX", nullptr,
+        0, 0, 30, 18, g_panel, nullptr, g_instance, nullptr);
+    g_cutSubsyncTrack = CreateWindowExW(0, L"COMBOBOX", nullptr,
         WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST |
         CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL,
-        0, 0, 210, 180, g_panel,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SUB_SYNC_TRACK)),
+        0, 0, 270, 180, g_panel,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CUT_SUBSYNC_TRACK)),
         g_instance, nullptr);
-    SetWindowTheme(g_cutSubSyncTrack, L"DarkMode_CFD", nullptr);
-    SendMessageW(g_cutSubSyncTrack, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), 20);
-    SendMessageW(g_cutSubSyncTrack, CB_SETITEMHEIGHT, 0, 20);
+    SetWindowTheme(g_cutSubsyncTrack, L"DarkMode_CFD", nullptr);
+    SendMessageW(g_cutSubsyncTrack, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), 20);
+    SendMessageW(g_cutSubsyncTrack, CB_SETITEMHEIGHT, 0, 20);
 
-    g_cutSubOffsetLabel = CreateWindowExW(0, L"STATIC", L"Offset ms",
+    g_cutSubsyncOffsetLabel = CreateWindowExW(0, L"STATIC", L"Offset ms",
         WS_CHILD | SS_LEFTNOWORDWRAP,
-        0, 0, 62, 18, g_panel,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SUB_OFFSET_LABEL)), g_instance, nullptr);
-    g_cutSubOffsetEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"0",
+        0, 0, 70, 18, g_panel,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CUT_SUBSYNC_OFFSET_LABEL)),
+        g_instance, nullptr);
+    g_cutSubsyncOffsetEdit = CreateWindowExW(
+        WS_EX_CLIENTEDGE, L"EDIT", L"0",
         WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL | ES_RIGHT,
-        0, 0, 62, 22, g_panel,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SUB_OFFSET)), g_instance, nullptr);
-    g_cutSubSyncStatus = CreateWindowExW(0, L"STATIC", L"A --   B --",
+        0, 0, 68, 22, g_panel,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CUT_SUBSYNC_OFFSET)),
+        g_instance, nullptr);
+
+    g_cutSubSyncStatus = CreateWindowExW(
+        0, L"STATIC", L"",
         WS_CHILD | SS_LEFTNOWORDWRAP | SS_PATHELLIPSIS,
         0, 0, 240, 18, g_panel,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SUB_SYNC_STATUS)), g_instance, nullptr);
@@ -11488,7 +11316,6 @@ void CreateUi(HWND hwnd) {
     // border and arrow button.
     SetWindowTheme(g_cutFormat, L"DarkMode_CFD", nullptr);
     SetWindowTheme(g_cutResolution, L"DarkMode_CFD", nullptr);
-    SetWindowTheme(g_cutSubSyncTrack, L"DarkMode_CFD", nullptr);
     SendMessageW(g_cutFormat, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), 20);
     SendMessageW(g_cutFormat, CB_SETITEMHEIGHT, 0, 20);
     SendMessageW(g_cutResolution, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), 20);
@@ -11584,10 +11411,10 @@ void CreateUi(HWND hwnd) {
         g_cutSizeLabel, g_cutSize, g_cutCrfLabel, g_cutCrfEdit,
         g_cutAudioOffsetLabel, g_cutAudioOffset,
         g_cutAudioSyncTrackLabel, g_cutAudioSyncTrack, g_cutAudioSyncStatus,
+        g_cutSubsyncTrackLabel, g_cutSubsyncTrack,
+        g_cutSubsyncOffsetLabel, g_cutSubsyncOffsetEdit,
         g_cutSubPathLabel, g_cutSubPathEdit,
         g_cutSubTitleLabel, g_cutSubTitleEdit,
-        g_cutSubSyncTrackLabel, g_cutSubSyncTrack,
-        g_cutSubOffsetLabel, g_cutSubOffsetEdit,
         g_cutSubSyncStatus
     };
     for (HWND control : cutterControls) {
@@ -11600,7 +11427,7 @@ void CreateUi(HWND hwnd) {
     SetWindowTheme(g_cutResolution, L"DarkMode_CFD", nullptr);
     SetWindowTheme(g_cutAudioModeCombo, L"DarkMode_CFD", nullptr);
     SetWindowTheme(g_cutAudioSyncTrack, L"DarkMode_CFD", nullptr);
-    SetWindowTheme(g_cutSubSyncTrack, L"DarkMode_CFD", nullptr);
+    SetWindowTheme(g_cutSubsyncTrack, L"DarkMode_CFD", nullptr);
     SyncCutterAudioContextControls();
     SyncCutterSubtitleContextControls();
     SyncCutterContextVisibility();
@@ -12943,11 +12770,7 @@ INT_PTR CALLBACK CutterAudioTracksProc(
 
 void ShowCutterAudioTrackManager() {
     if (g_cutInputs.empty() && g_currentMediaPath.empty()) {
-        MessageBoxW(
-            g_main,
-            L"Open an input file first.",
-            kAppTitle,
-            MB_OK | MB_ICONINFORMATION);
+        ShowCutterNeedsInputStatus();
         return;
     }
 
@@ -13446,36 +13269,14 @@ void ShowCutterSubtitleTrackManager() {
         return;
     }
 
-    StoreLegacySubtitleSyncToManaged();
-
     const bool wasInitialized = g_cutSubtitleTracksInitialized;
     const auto previousTracks = g_cutSubtitleTracks;
-    const int previousSyncIndex = g_cutSubtitleSyncTrackIndex;
-
-    std::wstring activeExternalPath;
-    bool activeWasEmbedded = false;
-    int activeEmbeddedFfmpegIndex = -1;
-    int64_t activeEmbeddedMpvId = -1;
-    if (const auto* active = ActiveManagedSubtitleSyncTrackConst()) {
-        activeWasEmbedded = active->embedded;
-        if (active->embedded) {
-            activeEmbeddedFfmpegIndex = active->ffmpegStreamIndex;
-            activeEmbeddedMpvId = active->mpvTrackId;
-        } else {
-            activeExternalPath = AbsoluteLocalPath(active->externalPath);
-        }
-    } else if (!g_cutSubtitlePath.empty()) {
-        activeExternalPath = AbsoluteLocalPath(g_cutSubtitlePath);
-    }
 
     EnsureCutterSubtitleTracksInitialized();
 
     CutterSubtitleTrackDialogState state;
     state.tracks = g_cutSubtitleTracks;
-    state.selectedIndex =
-        g_cutSubtitleSyncTrackIndex >= 0
-            ? g_cutSubtitleSyncTrackIndex
-            : (state.tracks.empty() ? -1 : 0);
+    state.selectedIndex = state.tracks.empty() ? -1 : 0;
 
     const INT_PTR result = DialogBoxParamW(
         g_instance,
@@ -13488,7 +13289,6 @@ void ShowCutterSubtitleTrackManager() {
         if (!wasInitialized) {
             g_cutSubtitleTracks = previousTracks;
             g_cutSubtitleTracksInitialized = false;
-            g_cutSubtitleSyncTrackIndex = previousSyncIndex;
         }
             SyncCutterSubtitleContextControls();
         return;
@@ -13497,68 +13297,10 @@ void ShowCutterSubtitleTrackManager() {
     g_cutSubtitleTracks = std::move(state.tracks);
     g_cutSubtitleTracksInitialized = true;
 
-    g_cutSubtitleSyncTrackIndex = -1;
-    if (activeWasEmbedded) {
-        for (size_t i = 0; i < g_cutSubtitleTracks.size(); ++i) {
-            const auto& track = g_cutSubtitleTracks[i];
-            if (!track.embedded) continue;
-            const bool sameFfmpeg =
-                activeEmbeddedFfmpegIndex >= 0 &&
-                track.ffmpegStreamIndex == activeEmbeddedFfmpegIndex;
-            const bool sameMpv =
-                activeEmbeddedMpvId >= 0 &&
-                track.mpvTrackId == activeEmbeddedMpvId;
-            if ((sameFfmpeg || sameMpv) &&
-                CutterManagedSubtitleSyncCapable(track)) {
-                g_cutSubtitleSyncTrackIndex = static_cast<int>(i);
-                break;
-            }
-        }
-    } else if (!activeExternalPath.empty()) {
-        for (size_t i = 0; i < g_cutSubtitleTracks.size(); ++i) {
-            const auto& track = g_cutSubtitleTracks[i];
-            if (track.embedded) continue;
-            if (_wcsicmp(
-                    AbsoluteLocalPath(track.externalPath).c_str(),
-                    activeExternalPath.c_str()) == 0) {
-                g_cutSubtitleSyncTrackIndex = static_cast<int>(i);
-                break;
-            }
-        }
-    }
-    if (g_cutSubtitleSyncTrackIndex < 0) {
-        for (size_t i = 0; i < g_cutSubtitleTracks.size(); ++i) {
-            if (CutterManagedSubtitleSyncCapable(g_cutSubtitleTracks[i])) {
-                g_cutSubtitleSyncTrackIndex = static_cast<int>(i);
-                break;
-            }
-        }
-    }
-
-    if (g_cutSubtitleSyncTrackIndex >= 0) {
-        LoadManagedSubtitleSyncToLegacy();
-    } else {
-        g_cutSubtitlePath.clear();
-        g_cutSubtitleTitle.clear();
-        g_cutSubtitlesEnabled = false;
-        g_cutSubtitleOffsetMs = 0;
-        g_cutSubtitleSyncASet = false;
-        g_cutSubtitleSyncBSet = false;
-        g_cutSubtitleDriftEnabled = false;
-    }
-
     SaveSettings();
     SyncCutterSubtitleContextControls();
     if (g_cutSubtitles) InvalidateRect(g_cutSubtitles, nullptr, FALSE);
     if (g_cutSubSyncButton) InvalidateRect(g_cutSubSyncButton, nullptr, FALSE);
-
-    if (CutterHasActiveSubtitleSyncTarget()) {
-        CutterSelectActiveSubtitleForPreview();
-        CutterApplySubtitlePreviewDelay();
-    } else if (g_mpv) {
-        MpvSetDouble("sub-delay", 0.0);
-        g_subtitleDelayTouched = false;
-    }
 
     const size_t included = static_cast<size_t>(std::count_if(
         g_cutSubtitleTracks.begin(),
@@ -13708,11 +13450,6 @@ void HandleCommand(int id) {
             break;
         }
         if (g_cutInputs.empty() && g_currentMediaPath.empty()) {
-            MessageBoxW(
-                g_main,
-                L"Open an input file first.",
-                kAppTitle,
-                MB_OK | MB_ICONINFORMATION);
             break;
         }
         {
@@ -13767,41 +13504,57 @@ void HandleCommand(int id) {
         ShowCutterSubtitleTrackManager();
         break;
     case IDC_CUT_SUB_SYNC: {
+        if (g_cutInputs.empty() && g_currentMediaPath.empty()) break;
+        if (g_cutInputs.size() > 1) {
+            ShowOsdText(L"SUBS SYNC is available for single-file jobs", 1600);
+            break;
+        }
         const bool open = !g_cutSubtitleSyncOpen;
-        if (open && g_cutInputs.size() <= 1) {
-            StoreLegacySubtitleSyncToManaged();
-            EnsureCutterSubtitleTracksInitialized();
-            if (g_cutSubtitleSyncTrackIndex >= 0) {
-                LoadManagedSubtitleSyncToLegacy();
-            }
-        }
+        if (open) EnsureCutterSubtitleTracksInitialized();
         SetCutterSubtitleSyncOpen(open);
-        if (open && CutterHasActiveSubtitleSyncTarget()) {
-            CutterSelectActiveSubtitleForPreview();
-            CutterApplySubtitlePreviewDelay();
-        }
         break;
     }
-    case IDC_SUB_SYNC_TRACK: {
-        if (!g_cutSubSyncTrack || !g_cutSubtitleTracksInitialized) break;
+    case IDC_CUT_SUBSYNC_TRACK: {
+        if (!g_cutSubsyncTrack || !g_cutSubtitleTracksInitialized) break;
         const int comboIndex = static_cast<int>(
-            SendMessageW(g_cutSubSyncTrack, CB_GETCURSEL, 0, 0));
+            SendMessageW(g_cutSubsyncTrack, CB_GETCURSEL, 0, 0));
         if (comboIndex == CB_ERR) break;
         const LRESULT itemData = SendMessageW(
-            g_cutSubSyncTrack, CB_GETITEMDATA, comboIndex, 0);
+            g_cutSubsyncTrack, CB_GETITEMDATA, comboIndex, 0);
         if (itemData == CB_ERR) break;
         const int trackIndex = static_cast<int>(itemData);
-        if (CutterSelectManagedSubtitleSyncTrack(trackIndex)) {
-            const auto* track = ActiveManagedSubtitleSyncTrackConst();
-            if (track) {
+        if (CutterSelectManagedSubsyncTrack(trackIndex)) {
+            if (const auto* track = ActiveManagedSubsyncTrackConst()) {
                 ShowOsdText(
-                    L"Subtitle sync target: " +
-                        ManagedSubtitleSyncLabel(*track),
-                    1400);
+                    L"Subtitle sync target: " + ManagedSubsyncLabel(*track),
+                    1300);
             }
         }
         break;
     }
+    case IDC_CUT_SUBSYNC_OFFSET_MINUS:
+        AdjustCutterSubsyncOffset(-kSyncStepMs);
+        break;
+    case IDC_CUT_SUBSYNC_OFFSET_PLUS:
+        AdjustCutterSubsyncOffset(kSyncStepMs);
+        break;
+    case IDC_CUT_SUBSYNC_OFFSET_RESET:
+        if (auto* track = ActiveManagedSubsyncTrack()) {
+            if (CutterSubsyncTrackSupported(*track)) {
+                track->offsetMs = 0;
+                LoadManagedSubsyncToControls();
+                if (g_cutSubsyncOffsetReset) {
+                    InvalidateRect(g_cutSubsyncOffsetReset, nullptr, FALSE);
+                }
+                ShowOsdText(L"Subtitle offset: 0 ms", 1000);
+            }
+        }
+        break;
+    case IDC_CUT_SUBSYNC_OFFSET:
+        if (CutterCommitSubsyncOffsetEdit(false)) {
+            LoadManagedSubsyncToControls();
+        }
+        break;
     case IDC_SUB_ENABLE:
         g_cutSubtitlesEnabled = !g_cutSubtitlesEnabled;
         SyncCutterSubtitleContextControls();
@@ -13816,9 +13569,6 @@ void HandleCommand(int id) {
         if (!path.empty()) {
             g_cutSubtitlePath = path;
             g_cutSubtitlesEnabled = true;
-            g_cutSubtitleSyncASet = false;
-            g_cutSubtitleSyncBSet = false;
-            g_cutSubtitleDriftEnabled = false;
             SyncCutterSubtitleContextControls();
             SaveSettings();
             CutterSelectSubtitleForPreview(path);
@@ -13832,9 +13582,6 @@ void HandleCommand(int id) {
         g_cutSubtitlePath.clear();
         g_cutSubtitleTitle.clear();
         g_cutSubtitlesEnabled = false;
-        g_cutSubtitleSyncASet = false;
-        g_cutSubtitleSyncBSet = false;
-        g_cutSubtitleDriftEnabled = false;
         SyncCutterSubtitleContextControls();
         SaveSettings();
         ShowOsdText(L"External subtitles cleared", 1200);
@@ -13860,67 +13607,11 @@ void HandleCommand(int id) {
                         : L"Keep embedded subtitles: OFF",
                     1300);
         break;
-    case IDC_SUB_OFFSET_MINUS:
-        CutterAdjustSubtitleOffsetMs(-50);
-        ShowOsdText(
-            L"Subtitle offset: " +
-            std::to_wstring(g_cutSubtitleOffsetMs) +
-            L" ms",
-            1000);
-        break;
-    case IDC_SUB_OFFSET_PLUS:
-        CutterAdjustSubtitleOffsetMs(50);
-        ShowOsdText(
-            L"Subtitle offset: " +
-            std::to_wstring(g_cutSubtitleOffsetMs) +
-            L" ms",
-            1000);
-        break;
-    case IDC_SUB_OFFSET_RESET:
-        CutterSetSubtitleOffsetMs(0, true);
-        ShowOsdText(L"Subtitle offset: 0 ms", 1000);
-        break;
-    case IDC_SUB_OFFSET: {
-        int parsed = g_cutSubtitleOffsetMs;
-        if (CutterParseSubtitleOffsetText(parsed, true)) {
-            CutterSetSubtitleOffsetMs(parsed, true);
-        }
-        break;
-    }
-    case IDC_SUB_SYNC_A:
-        CutterCaptureSubtitleSyncPoint(true);
-        break;
-    case IDC_SUB_SYNC_B:
-        CutterCaptureSubtitleSyncPoint(false);
-        break;
-    case IDC_SUB_DRIFT:
-        if (!CutterSubtitleDriftReady()) {
-            ShowOsdText(
-                L"Set SYNC A and SYNC B first",
-                1500);
-        } else {
-            g_cutSubtitleDriftEnabled =
-                !g_cutSubtitleDriftEnabled;
-            SyncCutterSubtitleContextControls();
-            CutterApplySubtitlePreviewDelay();
-            ShowOsdText(
-                g_cutSubtitleDriftEnabled
-                    ? L"Subtitle drift correction: ON"
-                    : L"Subtitle drift correction: OFF",
-                1400);
-        }
-        break;
-    case IDC_SUB_SYNC_CLEAR:
-        CutterClearSubtitleDrift();
-        break;
     case IDC_SUB_PATH: {
         wchar_t path[32768]{};
         GetWindowTextW(g_cutSubPathEdit, path,
                        static_cast<int>(std::size(path)));
         g_cutSubtitlePath = path;
-        g_cutSubtitleSyncASet = false;
-        g_cutSubtitleSyncBSet = false;
-        g_cutSubtitleDriftEnabled = false;
         SyncCutterSubtitleContextControls();
         SaveSettings();
         break;
@@ -14241,9 +13932,9 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 commandId == IDC_CUT_CRF ||
                 commandId == IDC_CUT_AUDIO_KBPS ||
                 commandId == IDC_CUT_AUDIO_OFFSET ||
+                commandId == IDC_CUT_SUBSYNC_OFFSET ||
                 commandId == IDC_SUB_PATH ||
-                commandId == IDC_SUB_TITLE ||
-                commandId == IDC_SUB_OFFSET) {
+                commandId == IDC_SUB_TITLE) {
                 if (notifyCode != EN_KILLFOCUS) return 0;
             }
 
@@ -14251,7 +13942,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (commandId == IDC_CUT_FORMAT ||
                 commandId == IDC_CUT_RESOLUTION ||
                 commandId == IDC_CUT_AUDIO_MODE ||
-                commandId == IDC_SUB_SYNC_TRACK) {
+                commandId == IDC_CUT_SUBSYNC_TRACK) {
                 if (notifyCode != CBN_SELCHANGE) return 0;
             }
 
@@ -14292,9 +13983,6 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 // The managed subtitle list is deliberately single-input.
                 g_cutSubtitlePath = subtitlePaths.front();
                 g_cutSubtitlesEnabled = true;
-                g_cutSubtitleSyncASet = false;
-                g_cutSubtitleSyncBSet = false;
-                g_cutSubtitleDriftEnabled = false;
                 SaveSettings();
                 CutterSelectSubtitleForPreview(g_cutSubtitlePath);
                 SyncCutterSubtitleContextControls();
@@ -14307,10 +13995,8 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                             g_cutSubtitlePath).filename().wstring(),
                     2000);
             } else {
-                StoreLegacySubtitleSyncToManaged();
                 EnsureCutterSubtitleTracksInitialized();
 
-                int firstDroppedIndex = -1;
                 for (const auto& rawPath : subtitlePaths) {
                     const std::wstring path = AbsoluteLocalPath(rawPath);
                     if (path.empty()) continue;
@@ -14329,9 +14015,6 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     }
 
                     if (existingIndex >= 0) {
-                        if (firstDroppedIndex < 0) {
-                            firstDroppedIndex = existingIndex;
-                        }
                         continue;
                     }
 
@@ -14340,17 +14023,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     track.externalPath = path;
                     track.included = true;
                     track.mode = CutterSubtitleMode::Soft;
-                    const int newIndex =
-                        static_cast<int>(g_cutSubtitleTracks.size());
                     g_cutSubtitleTracks.push_back(std::move(track));
-                    if (firstDroppedIndex < 0) {
-                        firstDroppedIndex = newIndex;
-                    }
-                }
-
-                if (firstDroppedIndex >= 0) {
-                    g_cutSubtitleSyncTrackIndex = firstDroppedIndex;
-                    LoadManagedSubtitleSyncToLegacy();
                 }
 
                 SaveSettings();
@@ -14359,10 +14032,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     InvalidateRect(g_cutSubtitles, nullptr, FALSE);
                 }
 
-                if (CutterHasActiveSubtitleSyncTarget()) {
-                    CutterSelectActiveSubtitleForPreview();
-                    CutterApplySubtitlePreviewDelay();
-                }
+                CutterSelectSubtitleForPreview(subtitlePaths.front());
 
                 if (subtitlePaths.size() == 1) {
                     ShowOsdText(

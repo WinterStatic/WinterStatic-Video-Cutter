@@ -440,10 +440,6 @@ static bool basic_text_subtitle_valid(const fs::path& path,
     return head.find("-->") != std::string::npos;
 }
 
-static bool basic_srt_valid(const fs::path& path) {
-    return basic_text_subtitle_valid(path, "srt");
-}
-
 static void commit_temp(const fs::path& temp, const fs::path& output, bool overwrite) {
     const fs::path backup = backup_path_for(output);
     std::error_code ec;
@@ -611,88 +607,6 @@ ExtractResult extract_subtitle_text(const fs::path& media,
         result.message = format.lossless_copy
             ? "Subtitle extracted successfully without text-format conversion."
             : "Subtitle extracted successfully with conversion to SRT.";
-        return result;
-
-    } catch (const std::exception& e) {
-        if (!temp.empty()) {
-            std::error_code cleanup_ec;
-            fs::remove(temp, cleanup_ec);
-        }
-        result.message = e.what();
-        return result;
-    }
-}
-
-ExtractResult extract_subtitle_srt(const fs::path& media,
-                                   int stream_index,
-                                   const fs::path& output,
-                                   const ExtractOptions& options) {
-    ExtractResult result;
-    fs::path temp;
-
-    try {
-        if (media.empty()) throw std::runtime_error("Media path is empty.");
-        if (output.empty()) throw std::runtime_error("Output path is empty.");
-        if (stream_index < 0) throw std::runtime_error("Stream index cannot be negative.");
-
-        // This is deliberately a precondition instead of a post-failure bumper:
-        // replacing the media file with an SRT would destroy the source itself.
-        std::error_code ec;
-        const bool media_exists = fs::exists(media, ec);
-        if (ec) throw std::runtime_error("Could not inspect media path: " + ec.message());
-        ec.clear();
-        const bool output_preexists = fs::exists(output, ec);
-        if (ec) throw std::runtime_error("Could not inspect output path: " + ec.message());
-        if (media_exists && output_preexists) {
-            ec.clear();
-            const bool same_file = fs::equivalent(media, output, ec);
-            if (ec) throw std::runtime_error("Could not compare input and output paths: " + ec.message());
-            if (same_file) throw std::runtime_error("Output path must not be the media input file.");
-        }
-
-        recover_commit_state(output);
-
-        ec.clear();
-        const bool output_exists = fs::exists(output, ec);
-        if (ec) throw std::runtime_error("Could not inspect output path: " + ec.message());
-        if (output_exists && !options.overwrite) {
-            throw std::runtime_error("Output already exists (use --overwrite to replace it)." );
-        }
-
-        temp = temp_path_for(output);
-        const std::string map_value = "0:" + std::to_string(stream_index);
-
-        std::vector<native_string> args = {
-            native_arg("-nostdin"),
-            native_arg("-hide_banner"),
-            native_arg("-loglevel"), native_arg("error"),
-            native_arg("-y"),
-            native_arg("-i"), media.native(),
-            native_arg("-map"), native_arg(map_value),
-            native_arg("-c:s"), native_arg("srt"),
-            native_arg("-f"), native_arg("srt"),
-            temp.native()
-        };
-
-        const ProcessResult process = run_process(options.tools.ffmpeg, args);
-        if (!process.launched || process.exit_code != 0) {
-            std::error_code cleanup_ec;
-            fs::remove(temp, cleanup_ec);
-            result.message = summarize_process_failure("ffmpeg", process);
-            return result;
-        }
-
-        if (!basic_srt_valid(temp)) {
-            std::error_code cleanup_ec;
-            fs::remove(temp, cleanup_ec);
-            result.message = "FFmpeg completed, but the extracted file did not contain a usable SRT timing marker.";
-            return result;
-        }
-
-        commit_temp(temp, output, options.overwrite);
-        result.success = true;
-        result.output_path = output;
-        result.message = "Subtitle extracted successfully.";
         return result;
 
     } catch (const std::exception& e) {
